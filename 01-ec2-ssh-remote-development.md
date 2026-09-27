@@ -38,44 +38,226 @@ Create a secure and stable remote Linux development environment on AWS EC2 and c
 - Add a clean alias in `~/.ssh/config`.
 - Verify SSH connectivity and configure Remote SSH in VS Code.
 
-## Issues faced
-1. SSH connection timed out.
-2. EC2 public IP changed after stop/start.
-3. Duplicate SSH host entries caused confusion.
-4. VS Code Remote SSH disconnected intermittently.
-5. Authentication setup was initially unclear.
+## Issues Identified
 
-## Root cause
-- The EC2 Security Group allowed SSH only from an older laptop public IP.
-- The EC2 instance was restarted and received a new public IPv4.
-- Multiple SSH entries pointed to stale or conflicting values.
-- Remote session reliability needed keepalive tuning and a stronger instance size.
-- The project initially used AWS-generated keys without a clear long-term personal SSH strategy.
+### 1. SSH Connection Timeout
+Initial SSH connections returned:
 
-## Fix
-- Update the Security Group to allow SSH access in the working environment.
-- Remove duplicate SSH configuration and keep one clean host alias.
-- Update the host details in `~/.ssh/config` to use the current EC2 public IP.
-- Add SSH keepalive settings to reduce disconnects.
-- Upgrade the EC2 instance when needed for better remote development stability.
-- Generate and use a personal ED25519 key pair for secure access.
+```bash
+ssh: connect to host <EC2-IP> port 22: Operation timed out
+```
 
-## What I learned
-- A laptop public IP can change, so SSH rules must match the current environment.
-- EC2 public IPv4 addresses may change after stop/start.
-- SSH configuration should be simple, centralized, and clean.
-- Multiple host aliases create confusion and broken access patterns.
-- VS Code Remote SSH is highly effective for cloud-based development.
-- SSH keepalive settings help maintain stable remote sessions.
-- Private SSH keys should stay on the local machine and never be shared.
+### Root Cause
+The EC2 Security Group allowed SSH only from an older laptop public IP address.
 
-## Interview questions
-1. Why did the SSH connection fail even though the EC2 instance was running?
-2. What is the purpose of an AWS Security Group?
-3. Why does an EC2 public IPv4 sometimes change?
-4. What is the difference between a private SSH key and a public SSH key?
-5. Why is VS Code Remote SSH useful for cloud-based development?
-6. How can SSH be made more stable in remote development workflows?
+The laptop public IP changed because it was dynamically assigned by the ISP.
+
+### How It Was Diagnosed
+
+```bash
+curl -4 ifconfig.me
+```
+
+The returned IP did not match the `/32` IP configured in the Security Group.
+
+### Fix
+A dedicated EC2 Security Group was created for the development server.
+
+For this learning environment, SSH access was configured on:
+
+```text
+Protocol: TCP
+Port: 22
+Source: 0.0.0.0/0
+```
+
+> Note: This is being used for a controlled learning environment. Production systems should normally restrict SSH access using trusted IP ranges, VPN, bastion host, or AWS SSM.
+
+---
+
+### 2. EC2 Public IP Changed
+After stopping and starting the EC2 instance, the public IPv4 changed.
+
+The SSH configuration still referenced the old IP.
+
+### Fix
+Updated `~/.ssh/config` with the new EC2 public IP:
+
+```bash
+Host de-dev
+    HostName <EC2-PUBLIC-IP>
+    User ubuntu
+    IdentityFile ~/Downloads/de-project-dev-serverKey.pem
+```
+
+### Learning
+A normal EC2 public IPv4 can change after stop/start.
+
+An Elastic IP can be used later if a fixed server IP is required.
+
+---
+
+### 3. Duplicate SSH Configuration
+The local `~/.ssh/config` contained multiple entries for the same EC2 host.
+
+### Fix
+Removed duplicate entries and created one clean alias:
+
+```bash
+Host de-dev
+    HostName <EC2-PUBLIC-IP>
+    User ubuntu
+    IdentityFile ~/Downloads/de-project-dev-serverKey.pem
+    ServerAliveInterval 30
+    ServerAliveCountMax 6
+    TCPKeepAlive yes
+```
+
+Now the server can be accessed with:
+
+```bash
+ssh de-dev
+```
+
+---
+
+### 4. VS Code Remote SSH Disconnects
+VS Code connected initially but later showed:
+
+```text
+Disconnected. Attempting to reconnect...
+```
+
+### Checks Performed
+
+- Verified EC2 status checks
+- Verified SSH service status
+- Verified authentication logs
+- Verified instance connectivity
+- Upgraded EC2 from `t3.micro` to `t3.medium`
+- Added SSH keepalive settings
+
+### SSH Service Verification
+
+```bash
+sudo systemctl status ssh
+```
+
+The SSH service was confirmed as:
+
+```text
+active (running)
+```
+
+---
+
+### 5. SSH Authentication Understanding
+Initial access used the AWS-generated `.pem` private key:
+
+```bash
+ssh -i ~/Downloads/de-project-dev-serverKey.pem ubuntu@<EC2-PUBLIC-IP>
+```
+
+A personal SSH key pair was generated:
+
+```bash
+ssh-keygen -t ed25519 -C "datapoem-macbook"
+```
+
+Generated:
+
+```text
+~/.ssh/id_ed25519
+~/.ssh/id_ed25519.pub
+```
+
+Meaning:
+
+```text
+id_ed25519
+= Private key
+= stays only on the laptop
+
+id_ed25519.pub
+= Public key
+= can be registered on EC2
+```
+
+---
+
+### 6. Internet Connectivity Verification
+From the EC2 server:
+
+```bash
+ping 8.8.8.8
+```
+
+The test was successful, confirming outbound internet connectivity from EC2.
+
+---
+
+## Phase 1 Final Status
+✅ EC2 instance available
+✅ Dedicated Security Group created
+✅ SSH connectivity working
+✅ VS Code Remote SSH working
+✅ SSH config cleaned
+✅ Keepalive configured
+✅ EC2 upgraded to `t3.medium`
+✅ Internet connectivity verified
+✅ Personal ED25519 SSH key pair generated
+⏳ Personal public key registration on EC2 pending
+
+---
+
+## Key Learnings from Phase 1
+
+- Difference between laptop public IP and EC2 public IP
+- How AWS Security Groups control inbound connectivity
+- Why changing source IPs can break SSH
+- Difference between EC2 `.pem` key and personal SSH keys
+- Why private keys must never be shared
+- How public-key SSH authentication works
+- How to troubleshoot SSH timeouts
+- How to troubleshoot `Connection reset by peer`
+- How VS Code Remote SSH works
+- Why SSH keepalive settings are useful
+- Why EC2 public IP may change after stop/start
+- Difference between public IPv4 and Elastic IP
+
+---
+
+## Interview Questions — Phase 1
+
+### 1. What is the purpose of an AWS Security Group?
+A Security Group acts as a virtual firewall for AWS resources and controls allowed inbound and outbound network traffic.
+
+### 2. Why did the SSH connection time out?
+The Security Group allowed SSH only from an older public IP address, while the laptop's current public IP had changed.
+
+### 3. What is port 22 used for?
+Port 22 is the standard TCP port used by SSH.
+
+### 4. What is the difference between a private and public SSH key?
+The private key stays secret on the user's machine. The public key can be stored on the remote server and is used to verify authentication.
+
+### 5. Why should an EC2 `.pem` file not be shared across a team?
+It creates a shared credential, making individual access control and revocation difficult.
+
+### 6. Why can an EC2 public IPv4 change?
+Auto-assigned public IPv4 addresses can change when an EC2 instance is stopped and started.
+
+### 7. What is an Elastic IP?
+An Elastic IP is a static public IPv4 address that can be associated with an AWS resource.
+
+### 8. What does `ServerAliveInterval` do?
+It makes the SSH client periodically send keepalive messages to prevent idle connections from being silently dropped.
+
+### 9. What is VS Code Remote SSH?
+It allows VS Code on a local machine to connect to a remote Linux server and work with files, terminals, and development tools running on that server.
+
+### 10. How would you secure SSH access in production?
+Common approaches include restricting Security Group source IPs, using a corporate VPN, bastion host, AWS SSM Session Manager, disabling password authentication, and using individual SSH keys.
 
 ## Architecture overview
 
