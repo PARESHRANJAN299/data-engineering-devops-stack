@@ -36,7 +36,7 @@ The technical direction includes:
 
 | Phase | Name | Status | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | Foundation and repo setup | Completed | Project Team | Repository initialized and project structure established |
+| 1 | EC2 + SSH Remote Development Setup | Completed | DevOps / Engineering | EC2 instance configured, SSH working, VS Code Remote SSH connected |
 | 2 | Environment provisioning | In Progress | DevOps Engineer | EC2 and supporting environment setup |
 | 3 | GitHub integration | Planned | Engineering Team | Repository sync and access validation |
 | 4 | Databricks integration | Planned | Data Engineer | Asset bundle and workflow connection |
@@ -46,79 +46,279 @@ The technical direction includes:
 
 # Phase 1 Issues
 
-## Issue 1: Repo and environment were not fully structured at the start
+## Issue 1: SSH Connection Timeout
 
-The project lacked a clear initial structure for tracking work, architecture decisions, and implementation status. This created confusion around what needed to be built first and how the stack would evolve.
+Initial SSH connections returned:
 
-## Issue 2: Lack of documented architecture and workflow clarity
+```bash
+ssh: connect to host <EC2-IP> port 22: Operation timed out
+```
 
-Without a clear repository map, it was difficult to understand how local development, cloud compute, GitHub, and Databricks connected to each other.
+### Root Cause
 
-## Issue 3: Minimal implementation documentation
+The EC2 Security Group allowed SSH only from an older laptop public IP address.
 
-Project goals, environment setup steps, and integration expectations were not fully documented, which slowed onboarding and issue resolution.
+The laptop public IP changed because it was dynamically assigned by the ISP.
+
+### How It Was Diagnosed
+
+```bash
+curl -4 ifconfig.me
+```
+
+The returned IP did not match the `/32` IP configured in the Security Group.
+
+### Fix
+
+A dedicated EC2 Security Group was created for the development server.
+
+For this learning environment, SSH access was configured on:
+
+```text
+Protocol: TCP
+Port: 22
+Source: 0.0.0.0/0
+```
+
+> Note: This is being used for a controlled learning environment. Production systems should normally restrict SSH access using trusted IP ranges, VPN, bastion host, or AWS SSM.
+
+## Issue 2: EC2 Public IP Changed
+
+After stopping and starting the EC2 instance, the public IPv4 changed.
+
+The SSH configuration still referenced the old IP.
+
+### Fix
+
+Updated `~/.ssh/config` with the new EC2 public IP:
+
+```bash
+Host de-dev
+    HostName <EC2-PUBLIC-IP>
+    User ubuntu
+    IdentityFile ~/Downloads/de-project-dev-serverKey.pem
+```
+
+### Learning
+
+A normal EC2 public IPv4 can change after stop/start.
+
+An Elastic IP can be used later if a fixed server IP is required.
+
+## Issue 3: Duplicate SSH Configuration
+
+The local `~/.ssh/config` contained multiple entries for the same EC2 host.
+
+### Fix
+
+Removed duplicate entries and created one clean alias:
+
+```bash
+Host de-dev
+    HostName <EC2-PUBLIC-IP>
+    User ubuntu
+    IdentityFile ~/Downloads/de-project-dev-serverKey.pem
+    ServerAliveInterval 30
+    ServerAliveCountMax 6
+    TCPKeepAlive yes
+```
+
+Now the server can be accessed with:
+
+```bash
+ssh de-dev
+```
+
+## Issue 4: VS Code Remote SSH Disconnects
+
+VS Code connected initially but later showed:
+
+```text
+Disconnected. Attempting to reconnect...
+```
+
+### Checks Performed
+
+- Verified EC2 status checks
+- Verified SSH service status
+- Verified authentication logs
+- Verified instance connectivity
+- Upgraded EC2 from `t3.micro` to `t3.medium`
+- Added SSH keepalive settings
+
+### SSH Service Verification
+
+```bash
+sudo systemctl status ssh
+```
+
+The SSH service was confirmed as:
+
+```text
+active (running)
+```
+
+## Issue 5: SSH Authentication Understanding
+
+Initial access used the AWS-generated `.pem` private key:
+
+```bash
+ssh -i ~/Downloads/de-project-dev-serverKey.pem ubuntu@<EC2-PUBLIC-IP>
+```
+
+A personal SSH key pair was generated:
+
+```bash
+ssh-keygen -t ed25519 -C "datapoem-macbook"
+```
+
+Generated:
+
+```text
+~/.ssh/id_ed25519
+~/.ssh/id_ed25519.pub
+```
+
+Meaning:
+
+```text
+id_ed25519
+= Private key
+= stays only on the laptop
+
+id_ed25519.pub
+= Public key
+= can be registered on EC2
+```
+
+## Issue 6: Internet Connectivity Verification
+
+From the EC2 server:
+
+```bash
+ping 8.8.8.8
+```
+
+The test was successful, confirming outbound internet connectivity from EC2.
+
+# Phase 1 Final Status
+
+✅ EC2 instance available
+✅ Dedicated Security Group created
+✅ SSH connectivity working
+✅ VS Code Remote SSH working
+✅ SSH config cleaned
+✅ Keepalive configured
+✅ EC2 upgraded to `t3.medium`
+✅ Internet connectivity verified
+✅ Personal ED25519 SSH key pair generated
+⏳ Personal public key registration on EC2 pending
 
 # Root Causes
 
-- Incomplete project scaffolding during the first setup phase
-- Missing end-to-end architecture view for the stack
-- No central tracker for status, blockers, and root-cause analysis
-- Limited operational documentation for environment and deployment dependencies
-- Insufficient early validation of the GitHub, EC2, and Databricks integration path
+- Security Group source rules were too restrictive for a changing laptop public IP
+- Old SSH configuration still pointed to a stale EC2 public IP
+- Duplicate SSH host entries caused confusion and inconsistent access paths
+- Remote development environment required additional keepalive tuning and resource adjustment
+- SSH authentication strategy needed to transition from AWS `.pem` keys to personal key-based management
 
 # Fixes
 
-- Created a project-level tracker to capture summary, goals, and progress
-- Documented architecture and stack relationships in a single source of truth
-- Defined a phased project plan with statuses and milestone ownership
-- Listed phase issues, root causes, and corrective actions for clarity
-- Structured the repository so future implementation tasks can be added in a consistent format
-- Identified Databricks and CI/CD integration as the next priority milestones
+- Created a dedicated EC2 Security Group with SSH access for the learning environment
+- Updated the host configuration to use the current public IP
+- Removed duplicate SSH entries and standardized the alias configuration
+- Enabled SSH keepalive settings to stabilize VS Code Remote SSH sessions
+- Upgraded EC2 instance size to improve remote development reliability
+- Generated and prepared a personal ED25519 key pair for future secure access
+- Confirmed external internet connectivity from the EC2 instance
 
 # Completed Steps
 
-- Project repository established
-- Initial project summary created
-- Core stack direction identified: VS Code + EC2 + GitHub + Databricks + CI/CD
-- Documentation scaffold created for ongoing project tracking
-- Phase tracker defined for planning and execution
-- Initial issue and root-cause analysis documented
+- EC2 instance created and verified
+- Security Group updated for SSH access
+- SSH connection tested successfully
+- VS Code Remote SSH configured and used
+- SSH config cleaned and standardized
+- Keepalive settings configured
+- EC2 instance resized for stability
+- ED25519 SSH key pair generated
+- Internet connectivity from EC2 confirmed
+- Phase 1 project documentation completed
 
 # Key Learnings
 
-- Clear project documentation reduces confusion and speeds up setup
-- A phase-based approach helps break down large platform work into manageable milestones
-- Version control and environment consistency are critical before automation is introduced
-- Databricks integration should be planned early because it impacts pipeline design and deployment choices
-- CI/CD works best when the repository, environment, and operational standards are already understood
+- Difference between laptop public IP and EC2 public IP
+- How AWS Security Groups control inbound connectivity
+- Why changing source IPs can break SSH
+- Difference between EC2 `.pem` key and personal SSH keys
+- Why private keys must never be shared
+- How public-key SSH authentication works
+- How to troubleshoot SSH timeouts
+- How to troubleshoot `Connection reset by peer`
+- How VS Code Remote SSH works
+- Why SSH keepalive settings are useful
+- Why EC2 public IP may change after stop/start
+- Difference between public IPv4 and Elastic IP
+- The importance of clean, single-source SSH host configuration for remote development
 
 # Interview Questions
 
-1. What is the business or technical goal of this data engineering stack?
-2. Which workloads will run in EC2 versus Databricks?
-3. How will code, configuration, and infrastructure be versioned and reviewed?
-4. What deployment strategy is expected for CI/CD?
-5. Which team owns data platform operations versus application deployment?
-6. What kind of monitoring, logging, and alerting is required?
-7. How will this environment scale if more data pipelines are introduced?
-8. What is the expected onboarding flow for new developers?
-9. Which security controls are required for cloud and data workloads?
-10. What success metrics will determine whether the architecture is working effectively?
+### 1. What is the purpose of an AWS Security Group?
 
-# Architecture Diagram
+A Security Group acts as a virtual firewall for AWS resources and controls allowed inbound and outbound network traffic.
+
+### 2. Why did the SSH connection time out?
+
+The Security Group allowed SSH only from an older public IP address, while the laptop's current public IP had changed.
+
+### 3. What is port 22 used for?
+
+Port 22 is the standard TCP port used by SSH.
+
+### 4. What is the difference between a private and public SSH key?
+
+The private key stays secret on the user's machine. The public key can be stored on the remote server and is used to verify authentication.
+
+### 5. Why should an EC2 `.pem` file not be shared across a team?
+
+It creates a shared credential, making individual access control and revocation difficult.
+
+### 6. Why can an EC2 public IPv4 change?
+
+Auto-assigned public IPv4 addresses can change when an EC2 instance is stopped and started.
+
+### 7. What is an Elastic IP?
+
+An Elastic IP is a static public IPv4 address that can be associated with an AWS resource.
+
+### 8. What does `ServerAliveInterval` do?
+
+It makes the SSH client periodically send keepalive messages to prevent idle connections from being silently dropped.
+
+### 9. What is VS Code Remote SSH?
+
+It allows VS Code on a local machine to connect to a remote Linux server and work with files, terminals, and development tools running on that server.
+
+### 10. How would you secure SSH access in production?
+
+Common approaches include restricting Security Group source IPs, using a corporate VPN, bastion host, AWS SSM Session Manager, disabling password authentication, and using individual SSH keys.
+
+# Project Architecture
 
 ```mermaid
 flowchart TD
-    A[Developer] --> B[VS Code]
+    A[MacBook] -->|SSH / VS Code Remote SSH| B[AWS EC2 Dev Server]
     B --> C[GitHub Repository]
-    C --> D[CI/CD Pipeline]
-    D --> E[EC2 Environment]
-    E --> F[Databricks Workspace]
-    F --> G[Data Pipelines]
-    G --> H[Data Storage / Lakehouse]
-    E --> I[Monitoring and Logs]
-    C --> J[Project Documentation]
-    D --> K[Automated Deployments]
+    B --> D[Python + uv]
+    B --> E[Databricks CLI]
+    E --> F[Databricks Asset Bundle]
+    F --> G[Databricks DEV]
+    G --> H[Bronze]
+    H --> I[Silver]
+    I --> J[Gold]
+    G --> K[Data Quality Framework]
+    C --> L[GitHub Actions]
+    L --> F
 ```
 
 # Final Note
