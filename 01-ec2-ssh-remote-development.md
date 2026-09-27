@@ -260,20 +260,60 @@ It allows VS Code on a local machine to connect to a remote Linux server and wor
 ### 10. How would you secure SSH access in production?
 Common approaches include restricting Security Group source IPs, using a corporate VPN, bastion host, AWS SSM Session Manager, disabling password authentication, and using individual SSH keys.
 
-## Architecture overview
+## Architecture Overview
 
-```mermaid
-flowchart TD
-    A[MacBook] -->|SSH / VS Code Remote SSH| B[AWS EC2 Dev Server]
-    B --> C[GitHub Repository]
-    B --> D[Python + uv]
-    B --> E[Databricks CLI]
-    E --> F[Databricks Asset Bundle]
-    F --> G[Databricks DEV]
-    G --> H[Bronze]
-    H --> I[Silver]
-    I --> J[Gold]
+```text
+MacBook
+  │
+  │ SSH / VS Code Remote SSH
+  │
+  ▼
+AWS Security Group
+  │
+  │ Allows TCP 22
+  │
+  ▼
+AWS EC2 Ubuntu Server
+  │
+  ├── Personal SSH public key registered
+  ├── SSH service running
+  ├── VS Code Remote SSH access
+  └── Internet connectivity verified
 ```
+
+### Authentication Flow
+
+```text
+MacBook
+  │
+  ├── Private Key
+  │   ~/.ssh/id_ed25519
+  │
+  ▼
+SSH Authentication
+  │
+  ▼
+EC2
+  │
+  └── Public Key
+      ~/.ssh/authorized_keys
+```
+
+### Phase 1 Outcome
+
+```text
+MacBook
+  ↓
+Personal SSH Key
+  ↓
+AWS Security Group
+  ↓
+EC2 Ubuntu Server
+  ↓
+VS Code Remote Development
+```
+
+✅ Phase 1 completed successfully.
 
 ## Phase status ✅
 Completed: EC2 instance is running, SSH access is working, VS Code Remote SSH is connected, and the personal SSH key setup is fully validated without the AWS `.pem` file.
