@@ -1,37 +1,70 @@
 # data-engineering-devops-stack
 
-VS-Code + EC2 + GitHub + Databricks (Asset bundle) + CI/CD direction
+## Project name
 
-## Project overview
+data-engineering-devops-stack
 
-This repository is a data engineering and DevOps project focused on building a modern workflow with local development, cloud infrastructure, GitHub-based collaboration, Databricks integration, and CI/CD automation.
+## Project summary
 
-## Project tracker
+This project is a hands-on data engineering and DevOps workflow built around a remote EC2 development environment, GitHub-based version control, Databricks integration, and CI/CD automation. The goal is to create a practical, repeatable setup for building and deploying data workflows while documenting the engineering decisions, issues, fixes, and lessons learned along the way.
 
-The full project tracker is available here:
+## Architecture
 
-- [PROJECT_TRACKER.md](PROJECT_TRACKER.md)
+```mermaid
+flowchart TD
+    A[MacBook] -->|SSH / VS Code Remote SSH| B[AWS EC2 Dev Server]
+    B --> C[GitHub Repository]
+    B --> D[Python + uv]
+    B --> E[Databricks CLI]
+    E --> F[Databricks Asset Bundle]
+    F --> G[Databricks DEV]
+    G --> H[Bronze]
+    H --> I[Silver]
+    I --> J[Gold]
+    G --> K[Data Quality Framework]
+    C --> L[GitHub Actions]
+    L --> F
+```
 
-It includes:
-
-- project name and summary
-- architecture and technology stack
-- phase tracker and milestone status
-- issues, root causes, and fixes
-- completed steps and key learnings
-- interview questions
-- architecture diagram
-
-## Current stack
+## Tools / technologies
 
 - VS Code
-- GitHub
-- EC2
-- Databricks
+- AWS EC2
+- Ubuntu Linux
+- SSH and SSH keys
+- Git and GitHub
 - Python
-- CI/CD automation
-- YAML and Markdown-based project documentation
+- uv
+- Databricks CLI
+- Databricks Asset Bundle
+- GitHub Actions
+- Markdown documentation
+- CI/CD deployment workflow
 
-## Goal
+## Overall phase tracker
 
-To create a practical, trackable data engineering environment that demonstrates how development, deployment, and cloud data workflows can be organized in a single repo-driven project.
+| Phase | Title | Status |
+| --- | --- | --- |
+| 1 | EC2 + SSH Remote Development Setup | ✅ Completed |
+| 2 | Python + uv Environment | ✅ Completed |
+| 3 | Git + GitHub Workflow | ✅ Completed |
+| 4 | Databricks CLI Authentication | ✅ Completed |
+| 5 | Databricks Asset Bundle | ✅ Completed |
+| 6 | Development Deployment | ✅ Completed |
+| 7 | Bronze / Silver / Gold Pipeline | ✅ Completed |
+| 8 | Data Quality Framework | ✅ Completed |
+| 9 | GitHub Actions CI/CD | ✅ Completed |
+| 10 | Approval-Based Deployment | ✅ Completed |
+
+## Phase files
+
+- [01-ec2-ssh-remote-development.md](01-ec2-ssh-remote-development.md)
+- [02-python-uv-environment.md](02-python-uv-environment.md)
+- [03-git-github-workflow.md](03-git-github-workflow.md)
+- [04-databricks-cli-authentication.md](04-databricks-cli-authentication.md)
+- [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md)
+- [06-dev-deployment.md](06-dev-deployment.md)
+- [07-bronze-silver-gold-pipeline.md](07-bronze-silver-gold-pipeline.md)
+- [08-data-quality-framework.md](08-data-quality-framework.md)
+- [09-github-actions-cicd.md](09-github-actions-cicd.md)
+- [10-approval-based-deployment.md](10-approval-based-deployment.md)
