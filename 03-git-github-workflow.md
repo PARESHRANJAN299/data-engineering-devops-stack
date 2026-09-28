@@ -18,6 +18,8 @@ Establish a reliable Git and GitHub workflow for version control, collaboration,
 - Reconnect to GitHub cleanly.
 - Confirm the repo is ready for future work.
 
+This phase demonstrates the manual feature-branch, commit, push, pull-request, approval, and merge workflow.
+
 ## Issues faced
 - Repository tracking was not fully structured at the start.
 - Local and remote changes needed clear ownership.
