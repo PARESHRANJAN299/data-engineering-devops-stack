@@ -1,0 +1,28 @@
+[project]
+name = "data-engineering-devops-stack"
+version = "0.1.0"
+description = "Production-style Data Engineering and DevOps project using Python, uv, Databricks, AWS, data quality, and CI/CD."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "databricks-sdk>=0.143.0",
+    "pandas>=3.0.6",
+    "pyyaml>=6.0.3",
+    "requests>=2.34.2",
+    "xlsxwriter>=3.2.9",
+]
+
+[project.scripts]
+data-engineering-devops-stack = "data_engineering_devops_stack:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.9",
+]
