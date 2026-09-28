@@ -21,30 +21,30 @@ This phase establishes the Python runtime, `uv` package manager, project virtual
 
 ```text
 AWS EC2 Ubuntu Server
-	|
-	v
+    |
+    v
 Python 3.12
-	|
-	v
+    |
+    v
 uv Package Manager
-	|
-	v
+    |
+    v
 Project Virtual Environment
-	|
-	+-- .venv/
-	      |
-	      +-- Runtime Dependencies
-	      |     +-- pandas
-	      |     +-- requests
-	      |     +-- databricks-sdk
-	      |     +-- pyyaml
-	      |     +-- xlsxwriter
-	      |
-	      +-- Development Dependencies
-		    +-- pytest
-		    +-- pytest-cov
-		    +-- ruff
-		    +-- mypy
+    |
+    +-- .venv/
+          |
+          +-- Runtime Dependencies
+          |     +-- pandas
+          |     +-- requests
+          |     +-- databricks-sdk
+          |     +-- pyyaml
+          |     +-- xlsxwriter
+          |
+          +-- Development Dependencies
+                +-- pytest
+                +-- pytest-cov
+                +-- ruff
+                +-- mypy
 ```
 
 The virtual environment is local to the project and ignored by Git. `pyproject.toml` and `uv.lock` describe the dependencies needed to recreate it.
@@ -57,11 +57,29 @@ Command:
 python3 --version
 ```
 
-Verified version: `Python 3.12.3`.
+Output:
+
+```text
+Python 3.12.3
+```
+
+Python 3.12 is available on the EC2 development server.
 
 ## Step 2 — Install and verify uv
 
-An initial attempt to install `uv` with `pip install uv` failed because Ubuntu 24.04 protects its system-managed Python environment under PEP 668. `uv` was installed separately using the official Astral installer:
+Initially, `uv` was not installed. Attempting to install it with `pip`:
+
+```bash
+pip install uv
+```
+
+returned:
+
+```text
+error: externally-managed-environment
+```
+
+Ubuntu 24.04 protects its system-managed Python environment under PEP 668. Instead of modifying system Python, `uv` was installed separately using the official Astral installer:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -73,18 +91,52 @@ Verified version: `uv 0.12.19`.
 
 ## Step 3 — Create and activate the virtual environment
 
-The project environment was created and activated with:
+Inside the project repository, the environment was created and activated with:
 
 ```bash
 uv venv
 source .venv/bin/activate
 ```
 
-The active shell prompt showed the project environment name. A new terminal session must activate the environment again.
+This created `.venv/`. After activation, the shell prompt showed:
+
+```text
+(data-engineering-devops-stack)
+```
+
+This indicates that the project virtual environment is active. A new terminal session must activate the environment again.
+
+## What Is a Virtual Environment?
+
+A virtual environment is an isolated Python environment for one project. Without isolation, packages from separate projects can conflict in the system Python environment:
+
+```text
+Ubuntu Python
+	+-- Project A packages
+	+-- Project B packages
+	+-- Project C packages
+```
+
+With project environments, each project manages its own packages:
+
+```text
+Project A                     Project B                     Project C
+	+-- .venv                     +-- .venv                     +-- .venv
+```
+
+This prevents dependency conflicts between projects.
 
 ## Step 4 — Initialize the Python project
 
-The project was initialized with `uv init`, creating `pyproject.toml`. Project metadata includes the name, version, Python requirement, runtime dependencies, development dependency group, and build configuration. The project description is:
+The project was initialized with `uv init`, creating `pyproject.toml`. This is the main Python project configuration file. It contains:
+
+- Project name and version
+- Python version requirement
+- Runtime dependencies
+- Development dependencies
+- Build configuration
+
+The project description is:
 
 ```toml
 description = "Production-style Data Engineering and DevOps project using Python, uv, Databricks, AWS, data quality, and CI/CD."
@@ -94,7 +146,7 @@ The resolved dependency versions are recorded in `uv.lock` for repeatable instal
 
 ## Step 5 — Configure dependencies
 
-Runtime dependencies:
+The following runtime dependencies were added:
 
 - `databricks-sdk` — interact with Databricks APIs and workspace resources.
 - `pandas` — analyze, transform, validate, and report on tabular data.
@@ -102,7 +154,49 @@ Runtime dependencies:
 - `requests` — call REST APIs from Python.
 - `xlsxwriter` — generate formatted Excel reports, including future data-quality reports.
 
-Development dependencies:
+`databricks-sdk` supports interactions with Databricks APIs and workspace resources. A typical integration path is:
+
+```text
+Python application
+	|
+	v
+Databricks SDK
+	|
+	v
+Databricks workspace, jobs, and APIs
+```
+
+`pandas` supports data analysis and transformation:
+
+```text
+CSV / Excel / API data
+	   |
+	   v
+	 pandas
+	   |
+	   v
+Filter / transform / validate
+```
+
+PyYAML reads configuration such as:
+
+```yaml
+environment: dev
+catalog: data_engineering
+schema: bronze
+```
+
+`requests` supports REST API calls and JSON responses. `xlsxwriter` can later generate formatted quality reports, for example:
+
+```text
+QC_Report.xlsx
+    +-- Summary
+    +-- Data Quality Results
+    +-- Failed Records
+    +-- Dashboard
+```
+
+## Development Dependencies
 
 - `pytest` — run automated tests.
 - `pytest-cov` — report test coverage.
@@ -110,6 +204,19 @@ Development dependencies:
 - `mypy` — perform static type checking.
 
 Runtime dependencies are needed by project code. Development dependencies support building and checking the project; they are unrelated to a Git development branch.
+
+Ruff can identify unused imports, formatting problems, and common coding mistakes. Mypy can detect type mismatches, such as assigning a string where an integer is expected:
+
+```python
+age: int = "hello"
+```
+
+The dependency groups can be summarized as:
+
+```text
+Runtime:      pandas, requests, databricks-sdk, pyyaml, xlsxwriter
+Development:  pytest, pytest-cov, ruff, mypy
+```
 
 ## Step 6 — Verify the environment
 
@@ -136,18 +243,18 @@ The repository `.gitignore` contains:
 .venv/
 ```
 
-The environment can be recreated from the tracked project configuration rather than committed:
+The `.venv` directory contains installed packages and machine-specific environment files, so it should not be committed to GitHub. The environment can be recreated from the tracked project configuration:
 
 ```text
 GitHub repository
-	|
-	+-- pyproject.toml and uv.lock
-		    |
-		    v
-		  uv sync
-		    |
-		    v
-	      recreated .venv
+    |
+    +-- pyproject.toml and uv.lock
+              |
+              v
+            uv sync
+              |
+              v
+        recreated .venv
 ```
 
 ## Issues, Root Causes, and Fixes
