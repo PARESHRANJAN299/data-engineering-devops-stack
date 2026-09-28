@@ -47,14 +47,14 @@ flowchart TD
 | --- | --- | --- |
 | 1 | EC2 + SSH Remote Development Setup | ✅ Completed |
 | 2 | Python + uv Environment | ✅ Completed |
-| 3 | Git + GitHub Workflow | ✅ Completed |
-| 4 | Databricks CLI Authentication | ✅ Completed |
-| 5 | Databricks Asset Bundle | ✅ Completed |
-| 6 | Development Deployment | ✅ Completed |
-| 7 | Bronze / Silver / Gold Pipeline | ✅ Completed |
-| 8 | Data Quality Framework | ✅ Completed |
-| 9 | GitHub Actions CI/CD | ✅ Completed |
-| 10 | Approval-Based Deployment | ✅ Completed |
+| 3 | Git + GitHub Workflow | ⏳ Pending |
+| 4 | Databricks CLI Authentication | ⏳ Pending |
+| 5 | Databricks Asset Bundle | ⏳ Pending |
+| 6 | Development Deployment | ⏳ Pending |
+| 7 | Bronze / Silver / Gold Pipeline | ⏳ Pending |
+| 8 | Data Quality Framework | ⏳ Pending |
+| 9 | GitHub Actions CI/CD | ⏳ Pending |
+| 10 | Approval-Based Deployment | ⏳ Pending |
 
 ## Phase files
 
