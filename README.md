@@ -48,7 +48,7 @@ flowchart TD
 | 1 | EC2 + SSH Remote Development Setup | ✅ Completed |
 | 2 | Python + uv Environment | ✅ Completed |
 | 3 | Git + GitHub Workflow | ⏳ Pending |
-| 4 | Databricks CLI Authentication | ⏳ Pending |
+| 4 | Databricks CLI Authentication | ✅ Completed |
 | 5 | Databricks Asset Bundle | ⏳ Pending |
 | 6 | Development Deployment | ⏳ Pending |
 | 7 | Bronze / Silver / Gold Pipeline | ⏳ Pending |
