@@ -1,0 +1,8 @@
+resources:
+  pipelines:
+    data_engineering_pipeline:
+      name: data-engineering-pipeline
+
+      libraries:
+        - file:
+            path: ../src/bronze/bronze_pipeline.py
