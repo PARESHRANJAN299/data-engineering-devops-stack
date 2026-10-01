@@ -1,5 +1,5 @@
 from pyspark import pipelines as dp
-from pyspark.sql.functions import current_timestamp, input_file_name
+from pyspark.sql.functions import current_timestamp, col
 
 raw_path = "s3://paresh-data-engineering-coinbase-dev/coinbase/raw/"
 
@@ -14,5 +14,5 @@ def coinbase_bronze():
         .option("cloudFiles.format", "json")
         .load(raw_path)
         .withColumn("ingestion_timestamp", current_timestamp())
-        .withColumn("source_file", input_file_name())
+        .withColumn("source_file", col("_metadata.file_path"))
     )
