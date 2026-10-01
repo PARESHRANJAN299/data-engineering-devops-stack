@@ -3,7 +3,7 @@ resources:
     data_engineering_pipeline:
       name: data-engineering-pipeline
       serverless: true
-      catalog: main
+      catalog: workspace
       schema: bronze
 
       libraries:
