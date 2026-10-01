@@ -3,6 +3,7 @@ resources:
     data_engineering_pipeline:
       name: data-engineering-pipeline
       serverless: true
+      catalog: main
 
       libraries:
         - file:
