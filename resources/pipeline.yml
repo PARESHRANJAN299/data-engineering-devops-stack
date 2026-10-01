@@ -4,6 +4,7 @@ resources:
       name: data-engineering-pipeline
       serverless: true
       catalog: main
+      schema: bronze
 
       libraries:
         - file:
