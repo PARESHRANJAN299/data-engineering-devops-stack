@@ -5,10 +5,12 @@ description = "Production-style Data Engineering and DevOps project using Python
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "boto3>=1.43.108",
     "databricks-sdk>=0.143.0",
     "pandas>=3.0.6",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
+    "websocket-client>=1.9.2",
     "xlsxwriter>=3.2.9",
 ]
 

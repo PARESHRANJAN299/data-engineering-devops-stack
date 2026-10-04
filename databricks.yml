@@ -1,6 +1,9 @@
 bundle:
   name: data-engineering-devops-stack
 
+include:
+  - resources/*.yml
+
 targets:
   dev:
     default: true

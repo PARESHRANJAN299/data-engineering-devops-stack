@@ -1,7 +1,18 @@
-from pyspark.sql import SparkSession
+from pyspark import pipelines as dp
+from pyspark.sql.functions import current_timestamp, col
 
-spark = SparkSession.builder.getOrCreate()
+raw_path = "s3://paresh-data-engineering-coinbase-dev/coinbase/raw/"
 
-df = spark.range(1, 6)
-
-df.write.mode("overwrite").format("delta").saveAsTable("bronze_demo_table")
+@dp.table(
+    name="coinbase_bronze",
+    table_properties={"quality": "bronze"}
+)
+def coinbase_bronze():
+    return (
+        spark.readStream
+        .format("cloudFiles")
+        .option("cloudFiles.format", "json")
+        .load(raw_path)
+        .withColumn("ingestion_timestamp", current_timestamp())
+        .withColumn("source_file", col("_metadata.file_path"))
+    )
