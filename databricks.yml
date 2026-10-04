@@ -8,4 +8,4 @@ targets:
   dev:
     default: true
     workspace:
-      host: https://dbc-b4ee64e7-d2e5.cloud.databricks.com
+      host: dbc-b4ee64e7-d2e5.cloud.databricks.com
