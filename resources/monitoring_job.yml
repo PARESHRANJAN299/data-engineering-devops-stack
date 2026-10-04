@@ -1,0 +1,27 @@
+resources:
+  jobs:
+    coinbase_consumer_health_check:
+      name: coinbase-consumer-health-check
+      description: ALERT job. Fails when the EC2 Coinbase consumer has stopped writing files to S3 (separate from the Bronze/Silver pipeline job).
+
+      schedule:
+        quartz_cron_expression: "0 7/15 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
+      max_concurrent_runs: 1
+
+      email_notifications:
+        on_failure:
+          - pareshranjan7327@gmail.com
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+
+      tasks:
+        - task_key: check_consumer_is_writing_to_s3
+          environment_key: default
+          spark_python_task:
+            python_file: ../src/monitoring/consumer_freshness_check.py
