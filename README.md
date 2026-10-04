@@ -51,7 +51,7 @@ flowchart TD
 | 4 | Databricks CLI Authentication | ✅ Completed |
 | 5 | Databricks Asset Bundle | ✅ Completed |
 | 6 | Development Deployment | ⏳ Pending |
-| 7 | Bronze / Silver / Gold Pipeline | ⏳ Pending |
+| 7 | Gold Transformations | ⏳ Pending |
 | 8 | Data Quality Framework | ⏳ Pending |
 | 9 | GitHub Actions CI/CD | ⏳ Pending |
 | 10 | Approval-Based Deployment | ✅ Completed |
@@ -64,7 +64,7 @@ flowchart TD
 - [04-databricks-cli-authentication.md](04-databricks-cli-authentication.md)
 - [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md)
 - [06-dev-deployment.md](06-dev-deployment.md)
-- [07-bronze-silver-gold-pipeline.md](07-bronze-silver-gold-pipeline.md)
+- [07-gold-transformations.md](07-gold-transformations.md)
 - [08-data-quality-framework.md](08-data-quality-framework.md)
 - [09-github-actions-cicd.md](09-github-actions-cicd.md)
 - [10-approval-based-deployment.md](10-approval-based-deployment.md)
