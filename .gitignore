@@ -2,3 +2,6 @@
 /test.json
 /awscliv2.zip
 /aws/
+
+__pycache__/
+*.pyc
