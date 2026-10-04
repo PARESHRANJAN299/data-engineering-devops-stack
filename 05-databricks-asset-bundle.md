@@ -789,7 +789,7 @@ Wrote 6 events to s3://.../...
 WebSocket connection closed
 ```
 
-**Issue and fix.** None observed with `Ctrl + C`. A hard kill (`kill -9`), power loss, or instance failure skips `on_close`, so the final window can still be lost. Only graceful termination is covered.
+**Issue and fix.** None observed with `Ctrl + C`. A hard kill (`kill -9`), an out-of-memory kill, or an underlying host failure skips `on_close`, so the final window can still be lost. Only graceful termination is covered.
 
 **Interview concept.** Graceful shutdown and at-least-once thinking: flush buffered state on exit so planned stops lose no data. Know that this does not protect against crashes, and name the options (durable queue, local spool file, smaller windows).
 
@@ -1413,7 +1413,7 @@ next successful flush (or restart) -> upload spooled files first-in, then delete
        spool_batch(key, body)
        event_buffer = []
    ```
-5. **Issue.** The spool does not protect against a hard crash (`kill -9`, power loss, instance failure) between flushes: up to about 15 seconds of events in memory are lost.
+5. **Issue.** The spool does not protect against a hard crash (`kill -9`, an out-of-memory kill, or an EC2 host failure) between flushes: up to about 15 seconds of events in memory are lost.
 6. **Fix.** Accepted limit. Writing every event to disk before buffering would remove it at the cost of more I/O and code.
 7. **Interview concept.** Bounded buffers and spill-to-disk, and the difference between a memory buffer (fast, volatile) and a durable log.
 
