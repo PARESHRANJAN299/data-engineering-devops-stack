@@ -54,7 +54,7 @@ flowchart TD
 | 7 | Bronze / Silver / Gold Pipeline | ⏳ Pending |
 | 8 | Data Quality Framework | ⏳ Pending |
 | 9 | GitHub Actions CI/CD | ⏳ Pending |
-| 10 | Approval-Based Deployment | ⏳ Pending |
+| 10 | Approval-Based Deployment | ✅ Completed |
 
 ## Phase files
 
