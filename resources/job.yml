@@ -1,0 +1,21 @@
+resources:
+  jobs:
+    coinbase_bronze_job:
+      name: coinbase-bronze-job
+      description: Runs the Bronze pipeline so Auto Loader appends new Coinbase S3 files into workspace.bronze.coinbase_bronze
+
+      schedule:
+        quartz_cron_expression: "0 0/15 * * * ?"
+        timezone_id: UTC
+        pause_status: UNPAUSED
+
+      max_concurrent_runs: 1
+
+      email_notifications:
+        on_failure:
+          - pareshranjan7327@gmail.com
+
+      tasks:
+        - task_key: run_bronze_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.data_engineering_pipeline.id}
