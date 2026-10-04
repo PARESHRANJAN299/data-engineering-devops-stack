@@ -1,0 +1,17 @@
+[Unit]
+Description=Coinbase WebSocket consumer (BTC-USD ticker to S3 raw)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/data-engineering-devops-stack
+ExecStart=/home/ubuntu/data-engineering-devops-stack/.venv/bin/python -u src/ingestion/coinbase_websocket_consumer.py
+Restart=always
+RestartSec=5
+# SIGTERM triggers the consumer's graceful flush before it exits.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
