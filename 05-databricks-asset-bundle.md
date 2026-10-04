@@ -859,20 +859,22 @@ Job orchestration and scheduling were added afterward in 5.8, and the consumer's
 
 ## Sub-Phase 5.6 — Silver Delta
 
-Silver turns the raw, nested Bronze rows into one clean, typed row per BTC-USD price update. It is added to the same `data-engineering-pipeline`, so one pipeline update runs Bronze first and then Silver.
+Silver turns the raw, nested Bronze rows into one clean, typed row per BTC-USD price update. It lives in the same `data-engineering-pipeline` as Bronze, so one pipeline update runs Bronze first and then Silver. The pieces below follow the order of the code in `src/silver/silver_pipeline.py`.
+
+Progressive Silver architecture:
 
 ```text
-workspace.bronze.coinbase_bronze
-        | read as a stream (only new Bronze rows)
-        v
-parse JSON -> explode events -> explode tickers -> cast types -> quality rules -> dedupe
-        v
-workspace.silver.coinbase_ticker
+Bronze table
+   -> 5.6.1 read as a stream
+   -> 5.6.2 parse the JSON text
+   -> 5.6.3 explode events and tickers
+   -> 5.6.4 cast types and timestamps
+   -> 5.6.5 quality rules
+   -> 5.6.6 deduplicate
+   -> 5.6.7 write workspace.silver.coinbase_ticker
 ```
 
-### 5.6.1 — What Bronze Looks Like and Why It Is Not Analysis-Ready
-
-**What it is.** One Bronze row is one Coinbase WebSocket message. Real data read from S3:
+Real data read from S3 (257 raw lines): 255 `update` messages, 1 `snapshot` (`sequence_num` 0), 1 test row. Every message had exactly 1 event with exactly 1 ticker, and `sequence_num` was unique within the session (0 to 256). One raw message looks like this:
 
 ```json
 {"channel": "ticker", "timestamp": "2026-10-04T05:50:33.553456409Z", "sequence_num": 216,
@@ -880,71 +882,186 @@ workspace.silver.coinbase_ticker
    "best_bid": "84895.29", "best_ask": "84895.3", "volume_24_h": "1806.10224538", "...": "..."}]}]}
 ```
 
-**Why Silver is needed.**
+### 5.6.1 — Read Bronze as a Stream
 
-| Problem in Bronze | Silver fix |
-| --- | --- |
-| Prices are nested inside `events[].tickers[]` | Explode both arrays into one row per update |
-| Numbers are strings (`"84895.29"`) | Cast to `DECIMAL` |
-| `timestamp` is a string with nanoseconds | Trim to microseconds, cast to `TIMESTAMP` |
-| The old `test.json` row has no ticker data | Filter to `channel = 'ticker'` |
-| The first message after subscribing is a `snapshot` | Keep it, tagged in `event_type` |
-| The same message could be read twice | Deduplicate |
-
-**Data observed (257 raw lines).** 255 `update` messages, 1 `snapshot` (`sequence_num` 0), 1 test row. Every message had exactly 1 event with exactly 1 ticker, and `sequence_num` was unique within the session (0 to 256).
-
-**Interview concept.** Medallion architecture: Bronze keeps the raw shape, Silver cleans and standardizes, Gold aggregates for business use.
-
-### 5.6.2 — The Silver Code
-
-File: `src/silver/silver_pipeline.py`, registered in `resources/pipeline.yml` as a second library:
-
-```yaml
-      libraries:
-        - file:
-            path: ../src/bronze/bronze_pipeline.py
-        - file:
-            path: ../src/silver/silver_pipeline.py
+```text
+workspace.bronze.coinbase_bronze
+        | dp.read_stream("coinbase_bronze")
+        v
+Silver flow (new Bronze rows only)   <- you are here
 ```
 
-Key parts:
+1. **What it is.** A streaming read of the Bronze table inside the pipeline. Each update reads only the Bronze rows added since the previous update.
+2. **Why we need it.** Silver must grow with Bronze without reprocessing history. A batch read of the whole table would redo every row on every run and risk duplicates.
+3. **How it connects.** Bronze (5.4) is the upstream table. Because both live in the same pipeline, Lakeflow knows Silver depends on Bronze and runs Bronze first.
+4. **Code.**
+   ```python
+   dp.read_stream("coinbase_bronze")
+   ```
+   `resources/pipeline.yml` registers the Silver file as a second library:
+   ```yaml
+   libraries:
+     - file:
+         path: ../src/bronze/bronze_pipeline.py
+     - file:
+         path: ../src/silver/silver_pipeline.py
+   ```
+5. **Issue.** None in this step.
+6. **Fix.** Not needed.
+7. **Interview concept.** Streaming table reading another table incrementally; dependency ordering inside one declarative pipeline.
 
-```python
-@dp.table(name="workspace.silver.coinbase_ticker", table_properties={"quality": "silver"})
-@dp.expect_all_or_drop({
-    "event_time_not_null": "event_time IS NOT NULL",
-    "product_id_not_null": "product_id IS NOT NULL",
-    "price_positive": "price > 0",
-    "bid_not_above_ask": "best_bid <= best_ask",
-})
-def coinbase_ticker():
-    return (
-        dp.read_stream("coinbase_bronze")
-        .where(col("channel") == "ticker")
-        ...
-        .withWatermark("event_time", "1 hour")
-        .dropDuplicatesWithinWatermark(["product_id", "event_time", "sequence_num"])
-    )
+### 5.6.2 — Parse the JSON Text in `events`
+
+```text
+Bronze row: events = '[{"type":"update","tickers":[...]}]'   (a STRING)
+        | from_json(events, EVENTS_SCHEMA)
+        v
+events as a real array of structs   <- you are here
 ```
 
-- **Fully qualified table name.** `workspace.silver.coinbase_ticker` writes into a different schema from the pipeline default (`bronze`). The `workspace.silver` schema had to be created first.
-- **Safe casts.** `try_cast` turns a bad number into `NULL` instead of crashing the pipeline, and the `price > 0` rule then drops that row.
-- **Dedup key.** `sequence_num` can restart when the consumer reconnects, so the key also includes `event_time`.
-- **Quality rules.** `expect_all_or_drop` removes failing rows and counts them on the pipeline's Data quality tab.
+1. **What it is.** `from_json` with an explicit schema (`TICKER_SCHEMA`, `EVENTS_SCHEMA`) that converts the text in `events` into an array of structs.
+2. **Why we need it.** Auto Loader reads JSON fields as text by default, so Bronze stores `events` as a string. A string cannot be exploded or queried by field.
+3. **How it connects.** It takes the `events` column from the Bronze stream in 5.6.1 and hands a typed array to the explode steps in 5.6.3.
+4. **Code.**
+   ```python
+   TICKER_SCHEMA = StructType([StructField(name, StringType()) for name in
+       ["type", "product_id", "price", "volume_24_h", "low_24_h", "high_24_h",
+        "low_52_w", "high_52_w", "price_percent_chg_24_h",
+        "best_bid", "best_ask", "best_bid_quantity", "best_ask_quantity"]])
+   EVENTS_SCHEMA = ArrayType(StructType([
+       StructField("type", StringType()),
+       StructField("tickers", ArrayType(TICKER_SCHEMA)),
+   ]))
+   from_json(col("events"), EVENTS_SCHEMA)
+   ```
+   All ticker fields are read as strings first and cast in 5.6.4.
+5. **Issue.** The first Silver update failed: `Cannot resolve "explode(events)" ... "events" has the type "STRING"`. A failed update then sat in `RETRY_ON_FAILURE`.
+6. **Fix.** Parse in Silver with an explicit schema and leave Bronze unchanged. Stop the retrying update (`databricks pipelines stop <pipeline-id>`), deploy the fix, and run again.
+7. **Interview concept.** Auto Loader infers JSON columns as strings unless `cloudFiles.inferColumnTypes` is enabled. Keeping Bronze raw and parsing in Silver is a deliberate design choice.
 
-**Interview concept.** Streaming table reading another table incrementally; expectations (data-quality rules) with drop semantics; watermark-based deduplication.
+### 5.6.3 — Explode `events` and `tickers`
 
-### 5.6.3 — Issue Faced and Fix
+```text
+one message (events[ tickers[ ... ] ])
+        | explode(events) -> explode(tickers)
+        v
+one row per ticker update   <- you are here
+```
 
-| Issue | Root cause | Fix |
-| --- | --- | --- |
-| `Schema 'workspace.silver' does not exist` | Silver writes to a schema that had not been created | `databricks schemas create silver workspace` |
-| `Cannot resolve "explode(events)"` — `events` has type `STRING` | Auto Loader reads JSON fields as text by default, so Bronze `events` is a JSON string, not an array | Parse in Silver with `from_json` and an explicit schema; leave Bronze unchanged |
-| A failed update stayed in `RETRY_ON_FAILURE` | The pipeline auto-retried the broken code | `databricks pipelines stop`, deploy the fix, run again |
+1. **What it is.** `explode` turns each array element into its own row, first for `events` and then for the nested `tickers`.
+2. **Why we need it.** The price is nested two levels deep (`events[].tickers[]`). Analysts need one flat row per price update.
+3. **How it connects.** It consumes the parsed array from 5.6.2 and produces the flat `ticker` struct that 5.6.4 casts.
+4. **Code.**
+   ```python
+   explode(from_json(col("events"), EVENTS_SCHEMA)).alias("event")
+   ...
+   explode(col("event.tickers")).alias("ticker")
+   ```
+   It also filters `col("channel") == "ticker"`, which removes the old `test.json` row (it has no `channel`). The `snapshot` message is kept and tagged in the `event_type` column.
+5. **Issue.** None.
+6. **Fix.** Not needed.
+7. **Interview concept.** `explode` changes the grain of the data: one message with N tickers becomes N rows. Always state the grain of a table.
 
-**Interview concept.** Auto Loader infers JSON columns as strings unless `cloudFiles.inferColumnTypes` is enabled. Keeping Bronze raw and parsing in Silver is a deliberate design choice.
+### 5.6.4 — Cast Types and Fix the Timestamp
 
-### 5.6.4 — Verification
+```text
+price = "84895.29"  (string)       timestamp = "...33.553456409Z" (nanoseconds)
+        | try_cast -> DECIMAL              | trim to microseconds -> TIMESTAMP
+        v
+price = 84895.29000000             event_time = 2026-10-04 05:50:33.553456   <- you are here
+```
+
+1. **What it is.** Converts strings to proper types: prices and volumes to `DECIMAL`, the timestamp to `TIMESTAMP`, `sequence_num` to `BIGINT`.
+2. **Why we need it.** You cannot average, compare, or sort text prices. Spark timestamps hold microseconds, but Coinbase sends nanoseconds, so the extra digits must be trimmed.
+3. **How it connects.** It reads the flat `ticker` fields from 5.6.3 and feeds typed columns to the quality rules in 5.6.5.
+4. **Code.**
+   ```python
+   def to_decimal(name, precision=18, scale=8):
+       return expr(f"try_cast({name} as decimal({precision},{scale}))")
+
+   to_timestamp(regexp_replace(col("timestamp"), r"(\.\d{6})\d*Z$", "$1Z")).alias("event_time")
+   col("sequence_num").cast("bigint")
+   ```
+   `try_cast` returns `NULL` for a bad value instead of crashing the whole pipeline.
+5. **Issue.** None observed. `DECIMAL` (not `DOUBLE`) was chosen to avoid floating-point error on money values.
+6. **Fix.** Not needed.
+7. **Interview concept.** Use `DECIMAL` for prices. `try_cast` plus a quality rule means one bad record is dropped and counted instead of failing the pipeline.
+
+### 5.6.5 — Quality Rules (Expectations)
+
+```text
+typed rows
+        | expect_all_or_drop(4 rules)
+        v
+only valid rows continue   <- you are here
+        (failing rows dropped and counted on the Data quality tab)
+```
+
+1. **What it is.** Declarative data-quality rules attached to the Silver table.
+2. **Why we need it.** Silver is the trusted layer. Rows with no time, no product, a zero or negative price, or a bid above the ask would corrupt Gold analysis.
+3. **How it connects.** It runs after the casts in 5.6.4, because a failed `try_cast` produces `NULL` and is caught here.
+4. **Code.**
+   ```python
+   @dp.expect_all_or_drop({
+       "event_time_not_null": "event_time IS NOT NULL",
+       "product_id_not_null": "product_id IS NOT NULL",
+       "price_positive": "price > 0",
+       "bid_not_above_ask": "best_bid <= best_ask",
+   })
+   ```
+5. **Issue.** None. The 256 real rows passed all four rules.
+6. **Fix.** Not needed. Dropped-row counts per rule appear on the pipeline's Data quality tab, so a rule that suddenly drops many rows is a signal to investigate.
+7. **Interview concept.** Expectations: `expect` (log only), `expect_or_drop` (drop), `expect_or_fail` (stop the pipeline). Choose the action by how bad the failure is.
+
+### 5.6.6 — Deduplicate
+
+```text
+rows (possibly repeated)
+        | withWatermark(event_time, 1 hour) + dropDuplicatesWithinWatermark
+        v
+unique (product_id, event_time, sequence_num)   <- you are here
+```
+
+1. **What it is.** Removes repeated rows using a business key.
+2. **Why we need it.** The same message could appear twice, for example if a raw file is re-ingested after a rebuild.
+3. **How it connects.** It is the last transformation before the table write. The watermark on `event_time` lets Spark forget old keys, so state does not grow forever.
+4. **Code.**
+   ```python
+   .withWatermark("event_time", "1 hour")
+   .dropDuplicatesWithinWatermark(["product_id", "event_time", "sequence_num"])
+   ```
+   The key includes `event_time` and not only `sequence_num`, because `sequence_num` is tied to a WebSocket connection and can be expected to restart after a reconnect. That was reasoned from how the feed works; it has not yet been observed across a reconnect.
+5. **Issue.** None observed. The 256 Silver rows had 256 distinct `sequence_num` values.
+6. **Fix.** Not needed.
+7. **Interview concept.** Streaming deduplication needs a watermark to bound state. Choose a key that is unique in the business sense. Silver is also protected upstream because Auto Loader never re-reads a processed file.
+
+### 5.6.7 — Write `workspace.silver.coinbase_ticker`
+
+```text
+valid, unique rows
+        | @dp.table(name="workspace.silver.coinbase_ticker")
+        v
+workspace.silver.coinbase_ticker   <- you are here
+```
+
+1. **What it is.** The Silver streaming table, published to its own schema (`workspace.silver`) even though the pipeline default schema is `bronze`.
+2. **Why we need it.** It is the clean, queryable, analysis-ready layer that Gold will read.
+3. **How it connects.** It is the end of the Silver flow and the input to Gold (5.7, later).
+4. **Code.**
+   ```python
+   @dp.table(name="workspace.silver.coinbase_ticker", table_properties={"quality": "silver"})
+   ```
+   Output columns: `product_id, event_time, sequence_num, event_type, price, best_bid, best_ask, best_bid_quantity, best_ask_quantity, volume_24h, high_24h, low_24h, high_52w, low_52w, price_pct_chg_24h, ingestion_timestamp, source_file`.
+5. **Issue.** `Schema 'workspace.silver' does not exist`.
+6. **Fix.**
+   ```bash
+   databricks schemas create silver workspace
+   databricks bundle deploy --target dev
+   databricks bundle run data_engineering_pipeline --target dev
+   ```
+7. **Interview concept.** Unity Catalog naming (`catalog.schema.table`); one pipeline can publish to several schemas by fully qualifying the table name. Keep `source_file` and `ingestion_timestamp` for lineage.
+
+**Verification.**
 
 | Check | Result |
 | --- | --- |
@@ -958,7 +1075,18 @@ Example Silver row: `BTC-USD | 2026-10-04T05:50:52.053Z | price 84895.29 | best_
 
 ## Sub-Phase 5.8 — Job Orchestration and Alerting
 
-Two Databricks jobs, both defined in the bundle, run independently.
+Two Databricks jobs, both defined in the bundle, run independently. They are built piece by piece below.
+
+Progressive architecture for 5.8:
+
+```text
+5.8.1 Job + schedule        -> triggers the pipeline every 15 minutes
+5.8.2 Task retries          -> 3 attempts before the run is called failed
+5.8.3 Failure email         -> pipeline problems
+5.8.4 Catch-up behavior     -> why gaps and re-runs are safe
+5.8.5 Consumer health check -> separate job watching S3 freshness
+5.8.6 Two different alerts  -> pipeline failure vs consumer failure
+```
 
 ```text
 Consumer (EC2) --> S3 --> coinbase-bronze-job (every 15 min) --> Bronze --> Silver
@@ -966,87 +1094,171 @@ Consumer (EC2) --> S3 --> coinbase-bronze-job (every 15 min) --> Bronze --> Silv
                     +--> coinbase-consumer-health-check (every 15 min) --> alert if S3 is stale
 ```
 
-### 5.8.1 — `coinbase-bronze-job`
+### 5.8.1 — Job and Schedule
 
-**What it is.** A scheduled job in `resources/job.yml` with one `pipeline_task` that starts `data-engineering-pipeline`.
-
-**Why we need it.** The pipeline does not run by itself. The job triggers it so new S3 files are appended to Bronze and then Silver.
-
-```yaml
-resources:
-  jobs:
-    coinbase_bronze_job:
-      name: coinbase-bronze-job
-      schedule:
-        quartz_cron_expression: "0 0/15 * * * ?"   # every 15 minutes
-        timezone_id: UTC
-        pause_status: UNPAUSED
-      max_concurrent_runs: 1
-      email_notifications:
-        on_failure:
-          - pareshranjan7327@gmail.com
-      tasks:
-        - task_key: run_bronze_pipeline
-          pipeline_task:
-            pipeline_id: ${resources.pipelines.data_engineering_pipeline.id}
-          max_retries: 3
-          min_retry_interval_millis: 60000
-          retry_on_timeout: true
+```text
+Schedule (every 15 min, UTC)
+        |
+        v
+coinbase-bronze-job   <- you are here
+        | pipeline_task
+        v
+data-engineering-pipeline (Bronze -> Silver)
 ```
 
-- **Schedule.** Every 15 minutes, so data reaches Silver up to 15 minutes after it lands in S3. Serverless compute runs on each trigger, so the interval is also a cost choice.
-- **Retries.** The task retries up to 3 times, 1 minute apart. The failure email is sent only when the run finally fails.
-- **No overlap.** `max_concurrent_runs: 1`.
-- **Created paused, then unpaused.** The schedule was first deployed as `PAUSED` and tested with a manual run, which succeeded, before it was unpaused.
+1. **What it is.** A Databricks Job defined in `resources/job.yml` with one task that starts the pipeline.
+2. **Why we need it.** A pipeline does not run by itself. The job decides when new S3 files are appended to Bronze and Silver.
+3. **How it connects.** The task points at the pipeline resource from 5.4 using a bundle reference, so the bundle deploys both in the right order.
+4. **Code.**
+   ```yaml
+   resources:
+     jobs:
+       coinbase_bronze_job:
+         name: coinbase-bronze-job
+         schedule:
+           quartz_cron_expression: "0 0/15 * * * ?"   # :00, :15, :30, :45 UTC
+           timezone_id: UTC
+           pause_status: UNPAUSED
+         max_concurrent_runs: 1
+         tasks:
+           - task_key: run_bronze_pipeline
+             pipeline_task:
+               pipeline_id: ${resources.pipelines.data_engineering_pipeline.id}
+   ```
+   - **Interval.** Every 15 minutes, so data reaches Silver up to 15 minutes after it lands in S3. Each run uses serverless compute, so the interval is also a cost choice.
+   - **No overlap.** `max_concurrent_runs: 1`.
+   - **Safe rollout.** The schedule was first deployed `PAUSED`, tested with a manual run (it succeeded), then unpaused.
+5. **Issue.** A cron edit made with `sed` did not match, so the job was unpaused while still on its old schedule.
+6. **Fix.** Edit the YAML directly, check the file contents, then redeploy.
+7. **Interview concept.** Job vs pipeline (the job schedules, the pipeline transforms). Bundle-managed jobs should be changed in YAML and redeployed, because edits in the UI are overwritten by the next deploy.
 
-**Incremental behavior.** Auto Loader keeps the list of processed files in the pipeline checkpoint, and Silver reads only new Bronze rows. If the pipeline is down for a while, the next successful run ingests only the files that arrived in the meantime. Re-running with no new files adds 0 rows; Bronze stayed at 257 and Silver at 256 across several runs while the consumer was stopped. A **Full refresh** would clear that state and rebuild everything, so do not use it unless a rebuild is intended.
+### 5.8.2 — Task Retries
 
-**Interview concept.** Job vs pipeline (the job schedules, the pipeline transforms); bundle-managed jobs should be changed in YAML and redeployed, because UI edits are overwritten.
-
-### 5.8.2 — `coinbase-consumer-health-check`
-
-**What it is.** A second job in `resources/monitoring_job.yml` that runs `src/monitoring/consumer_freshness_check.py`. It fails when the newest raw file in S3 is more than 10 minutes old.
-
-**Why we need it.** The consumer and the pipeline fail independently:
-
-| | Consumer | Pipeline / job |
-| --- | --- | --- |
-| Runs on | EC2 Python process | Databricks serverless |
-| Does | Coinbase to S3 | S3 to Bronze to Silver |
-| If it fails | No new files; ticks from the outage are lost for good | Files stay in S3; the next good run catches up |
-| Alert | `coinbase-consumer-health-check` | `coinbase-bronze-job` |
-
-If the consumer dies, the Bronze job still reports SUCCESS because it simply finds nothing new. Without this job there would be no email.
-
-```yaml
-    coinbase_consumer_health_check:
-      name: coinbase-consumer-health-check
-      schedule:
-        quartz_cron_expression: "0 7/15 * * * ?"   # :07, :22, :37, :52 UTC
-        pause_status: UNPAUSED
-      email_notifications:
-        on_failure:
-          - pareshranjan7327@gmail.com
-      environments:
-        - environment_key: default
-          spec:
-            environment_version: "3"
-      tasks:
-        - task_key: check_consumer_is_writing_to_s3
-          environment_key: default
-          spark_python_task:
-            python_file: ../src/monitoring/consumer_freshness_check.py
+```text
+run_bronze_pipeline fails
+        | wait 60 s -> retry (up to 3 times)
+        v
+success, or the run is marked failed   <- you are here
 ```
 
-The script reads S3 directly (today's and yesterday's folders), so a broken Bronze pipeline does not trigger it. It exits with code 1 when the newest file is stale.
+1. **What it is.** A retry policy on the pipeline task.
+2. **Why we need it.** Most pipeline failures are brief (a cloud blip, a cluster start problem). Retrying avoids an email for something that fixes itself.
+3. **How it connects.** It sits on the task from 5.8.1; the failure email in 5.8.3 is sent only after the retries are used up.
+4. **Code.**
+   ```yaml
+   max_retries: 3
+   min_retry_interval_millis: 60000
+   retry_on_timeout: true
+   ```
+5. **Issue.** None.
+6. **Fix.** Not needed.
+7. **Interview concept.** Retry policies handle transient errors; they do not fix bad code. A permanent error (like the Silver `STRING` error) fails every attempt.
 
-**Issue and fix.** `Task requires a cluster or an environment`: a Python task on serverless needs an `environments` entry; added `environment_key: default`.
+### 5.8.3 — Failure Email
 
-**Verification.** With the consumer stopped, the test run failed with `ALERT: the Coinbase consumer looks stopped` (newest file about 677 minutes old), as designed.
+```text
+run fails after all retries
+        | email_notifications.on_failure
+        v
+pareshranjan7327@gmail.com   <- you are here
+```
+
+1. **What it is.** An email sent when the job run fails.
+2. **Why we need it.** The job runs unattended, including overnight.
+3. **How it connects.** It is attached to the job in 5.8.1 and fires after the retries in 5.8.2.
+4. **Code.**
+   ```yaml
+   email_notifications:
+     on_failure:
+       - pareshranjan7327@gmail.com
+   ```
+   Only failures are configured. A success email every 15 minutes would bury the important one.
+5. **Issue.** None. No test email was forced from this job.
+6. **Fix.** Not needed.
+7. **Interview concept.** Alert on failure, not on success, to avoid alert fatigue.
+
+### 5.8.4 — Catch-Up and No-Duplicate Behavior
+
+```text
+pipeline down 10:00 -> consumer keeps writing files to S3 -> pipeline succeeds 10:15
+        | Auto Loader checkpoint remembers processed files
+        v
+only the files that arrived in between are ingested   <- you are here
+```
+
+1. **What it is.** Built-in behavior of the existing pipeline, not extra code.
+2. **Why we need it.** It guarantees a failed run loses nothing and a re-run duplicates nothing.
+3. **How it connects.** Bronze uses Auto Loader (5.4), which stores the list of processed files in the pipeline checkpoint. Silver (5.6.1) reads only new Bronze rows.
+4. **Configuration.** None beyond the pipeline itself. Evidence: Bronze stayed at 257 rows and Silver at 256 across several job runs while the consumer was stopped.
+5. **Issue.** Counts stayed at 257 after job runs and looked like nothing was happening.
+6. **Fix.** Nothing was broken: the consumer was stopped, so no new S3 files existed. Restarting the consumer resumed growth, and 5.8.5 now alerts on this case.
+7. **Interview concept.** Checkpointing gives incremental, exactly-once-style file ingestion. A **Full refresh** clears the checkpoint and rebuilds everything, so avoid it unless a rebuild is intended.
+
+### 5.8.5 — Consumer Health Check
+
+```text
+EC2 consumer --> S3 raw files
+                    | newest file older than 10 min?
+                    v
+coinbase-consumer-health-check   <- you are here
+        | fails -> email
+```
+
+1. **What it is.** A second job (`resources/monitoring_job.yml`) that runs `src/monitoring/consumer_freshness_check.py`. It reads S3 directly and exits with an error if the newest raw file is more than 10 minutes old.
+2. **Why we need it.** If the consumer dies, `coinbase-bronze-job` still reports SUCCESS because it finds nothing new. Without this job there would be no email, and ticks sent by Coinbase while the consumer is down are lost permanently.
+3. **How it connects.** It watches the output of the consumer (5.5), not the pipeline, so it works even when the pipeline is broken.
+4. **Code.**
+   ```yaml
+   coinbase_consumer_health_check:
+     name: coinbase-consumer-health-check
+     schedule:
+       quartz_cron_expression: "0 7/15 * * * ?"   # :07, :22, :37, :52 UTC
+       pause_status: UNPAUSED
+     email_notifications:
+       on_failure: [pareshranjan7327@gmail.com]
+     environments:
+       - environment_key: default
+         spec:
+           environment_version: "3"
+     tasks:
+       - task_key: check_consumer_is_writing_to_s3
+         environment_key: default
+         spark_python_task:
+           python_file: ../src/monitoring/consumer_freshness_check.py
+   ```
+   The script checks today's and yesterday's folders and fails with `ALERT: the Coinbase consumer looks stopped` when stale.
+5. **Issue.** `Task requires a cluster or an environment`.
+6. **Fix.** A Python task on serverless needs an `environments` entry with a matching `environment_key`.
+7. **Interview concept.** Data freshness monitoring: "job succeeded" is not the same as "data is fresh". Monitor each stage independently.
+
+**Verification.** With the consumer stopped, the test run failed with the alert message (newest file about 677 minutes old). After the consumer was restarted, new files appeared in S3 within seconds.
 
 **Limits.** Emails repeat about every 15 minutes while the consumer is down. This only alerts; it does not restart the consumer. Email text cannot be customized, so the job and task names carry the context.
 
-**Interview concept.** Monitor each stage independently; "job succeeded" is not the same as "data is fresh" (data freshness monitoring).
+### 5.8.6 — Two Different Alerts
+
+```text
+Coinbase -> [EC2 consumer] -> S3 -> [Databricks job/pipeline] -> Bronze -> Silver
+              alert A: consumer-health-check     alert B: coinbase-bronze-job
+```
+
+1. **What it is.** Two independent failure signals with different meanings.
+2. **Why we need it.** The consumer and the pipeline fail independently and have different consequences.
+3. **How it connects.** Alert A watches the S3 landing zone from 5.5; alert B watches the Databricks run from 5.8.1.
+4. **Comparison.**
+
+   | | Consumer | Pipeline / job |
+   | --- | --- | --- |
+   | Runs on | EC2 Python process | Databricks serverless |
+   | Does | Coinbase to S3 | S3 to Bronze to Silver |
+   | If it fails | No new files; ticks from the outage are lost for good | Files stay in S3; the next good run catches up |
+   | Alert email | job `coinbase-consumer-health-check` | job `coinbase-bronze-job` |
+   | Runs at (UTC) | `:07/:22/:37/:52` | `:00/:15/:30/:45` |
+
+   The schedules are offset on purpose so the two emails do not arrive together.
+5. **Issue.** The health check showed red marks on the Jobs page while the consumer was still down, which looked like a bug.
+6. **Fix.** It was working correctly. The red runs were from before the consumer was restarted. Restart the consumer (for example in `tmux`), and the next health check passes.
+7. **Interview concept.** Consumer failure loses data; pipeline failure delays data. Alert on both, separately. Still open: auto-restart (`systemd`), reconnect, and upload retry in the consumer.
 
 ## Future Sub-Phases — Build Separately
 
