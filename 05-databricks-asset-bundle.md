@@ -43,6 +43,7 @@ Gold Delta (future)
 | 5.6 | Silver cleansing and standardization | ✅ Complete |
 | 5.7 | Gold business-ready transformations | ⏳ Future work (to be built later) |
 | 5.8 | Job orchestration, retries, and failure/consumer alerts | ✅ Complete |
+| 5.9 | Consumer reliability: systemd, reconnect, upload retry, spool | ✅ Complete |
 
 The completed slices establish `Coinbase -> EC2 -> S3 -> Databricks -> Auto Loader -> Bronze Delta`. Each new S3 file contributes rows to the same Bronze table; files do not get separate Bronze tables. Silver (5.6) and the scheduled job with alerting (5.8) are complete. Gold (5.7) is not implemented.
 
@@ -735,7 +736,7 @@ boto3 put_object()
         |
         v
 S3 raw   <- you are here
-coinbase/raw/YYYY/MM/DD/HH/events_YYYYMMDD_HHMMSS.json
+coinbase/raw/YYYY/MM/DD/HH/events_YYYYMMDD_HHMMSS_ffffff.json
 ```
 
 **What it is.** The object key is built from the UTC time of the flush.
@@ -755,7 +756,7 @@ key = (
 )
 ```
 
-Example: `s3://paresh-data-engineering-coinbase-dev/coinbase/raw/2026/10/04/05/events_20261004_054913.json`
+Example: `s3://paresh-data-engineering-coinbase-dev/coinbase/raw/2026/10/04/05/events_20261004_054913_123456.json`
 
 **Issue and fix.** None observed. Auto Loader lists the prefix recursively, so nested date folders were found without any pipeline change. Using UTC avoids daylight-saving ambiguity. Two flushes in the same second would share a key, but a 15-second window makes that unlikely.
 
@@ -855,7 +856,7 @@ Not yet implemented in the consumer (from the original plan):
 - Retry on failed S3 uploads.
 - Size-based or timer-based flush.
 
-Job orchestration and scheduling were added afterward in 5.8, and the consumer's stopped-state is now monitored. The consumer itself still lacks auto-restart and these hardening items.
+Job orchestration and scheduling were added afterward in 5.8, and the consumer's stopped-state is now monitored. The auto-restart and hardening items were added afterward in 5.9.
 
 ## Sub-Phase 5.6 — Silver Delta
 
@@ -1258,7 +1259,225 @@ Coinbase -> [EC2 consumer] -> S3 -> [Databricks job/pipeline] -> Bronze -> Silve
    The schedules are offset on purpose so the two emails do not arrive together.
 5. **Issue.** The health check showed red marks on the Jobs page while the consumer was still down, which looked like a bug.
 6. **Fix.** It was working correctly. The red runs were from before the consumer was restarted. Restart the consumer (for example in `tmux`), and the next health check passes.
-7. **Interview concept.** Consumer failure loses data; pipeline failure delays data. Alert on both, separately. Still open: auto-restart (`systemd`), reconnect, and upload retry in the consumer.
+7. **Interview concept.** Consumer failure loses data; pipeline failure delays data. Alert on both, separately. Auto-restart (`systemd`), reconnect, and upload retry were added in 5.9.
+
+## Sub-Phase 5.9 — Consumer Reliability
+
+Until now the consumer was a script run by hand in a terminal. The Phase 5.8 health check could tell you it was down, but nothing brought it back, and any WebSocket or S3 error ended it. 5.9 makes the consumer run as a supervised service that survives drops and errors.
+
+Failure modes and the piece that handles each:
+
+| Failure | Piece |
+| --- | --- |
+| Terminal closed, SSH or VS Code dropped, EC2 reboot, crash | 5.9.1 systemd service |
+| WebSocket drops, or goes silently dead | 5.9.2 reconnect with backoff and ping |
+| An S3 upload fails | 5.9.3 upload retry |
+| S3 stays unreachable | 5.9.4 disk spool and buffer cap |
+| Service stop or restart | 5.9.5 graceful flush on SIGTERM |
+| Two batches in the same second | 5.9.6 unique file names |
+
+Progressive architecture:
+
+```text
+systemd (supervisor)
+   -> consumer process
+        -> reconnect loop (WebSocket)
+        -> event buffer
+        -> upload with retry -> S3 raw
+        -> disk spool if S3 stays down
+   -> health check (5.8.5) is the last line of defense
+```
+
+All code is in `src/ingestion/coinbase_websocket_consumer.py`; the service definition is `deploy/coinbase-consumer.service`.
+
+### 5.9.1 — systemd Service
+
+```text
+EC2 boot / crash / terminal closed
+        |
+        v
+systemd  --starts and restarts-->  consumer process   <- you are here
+```
+
+1. **What it is.** systemd is the Linux service manager. A unit file describes the program; systemd runs it in the background, starts it at boot, and restarts it when it exits.
+2. **Why we need it.** A manual `python3` run dies when the terminal closes and never comes back after a reboot. `tmux` survives a closed terminal but not a reboot or a crash.
+3. **How it connects.** It supervises the consumer from 5.5. The consumer still uses the EC2 IAM role, because the service runs as the `ubuntu` user on the instance.
+4. **Configuration.** `deploy/coinbase-consumer.service`:
+   ```ini
+   [Unit]
+   Description=Coinbase WebSocket consumer (BTC-USD ticker to S3 raw)
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   User=ubuntu
+   WorkingDirectory=/home/ubuntu/data-engineering-devops-stack
+   ExecStart=/home/ubuntu/data-engineering-devops-stack/.venv/bin/python -u src/ingestion/coinbase_websocket_consumer.py
+   Restart=always
+   RestartSec=5
+   KillSignal=SIGTERM
+   TimeoutStopSec=60
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   - `Restart=always` with `RestartSec=5`: restart 5 seconds after any exit.
+   - `python -u`: unbuffered output, so logs appear in the journal immediately.
+   - The `.venv` Python is used so `websocket-client` and `boto3` are available.
+
+   Install and operate:
+   ```bash
+   sudo cp deploy/coinbase-consumer.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now coinbase-consumer   # start now and on every boot
+   systemctl status coinbase-consumer
+   journalctl -u coinbase-consumer -f              # live logs
+   sudo systemctl restart coinbase-consumer        # after a code change
+   ```
+5. **Issue.** Running a second copy of the consumer (the old terminal one plus the service) would write every tick twice. The two connections have different `sequence_num` values, so Silver's dedup key would not remove the duplicates.
+6. **Fix.** Stop the terminal copy (`Ctrl+C`) before starting the service, and run only one consumer.
+7. **Interview concept.** Service supervision and auto-restart (the same idea as Kubernetes restarting a crashed pod); systemd as the process manager on Linux.
+
+### 5.9.2 — WebSocket Reconnect with Backoff and Ping
+
+```text
+Coinbase WebSocket  -- drops -->  consumer
+        ^                            |
+        +---- reconnect (1, 2, 4 ... 60 s) ----+   <- you are here
+```
+
+1. **What it is.** A loop around `ws.run_forever()` that reconnects after any disconnect, with exponential backoff, and a ping/pong heartbeat.
+2. **Why we need it.** `run_forever()` returns when the connection closes, so the old script simply ended. A connection can also go silently dead: still open, but delivering nothing.
+3. **How it connects.** `on_open` already sends the subscribe message, so every reconnect re-subscribes automatically. Before reconnecting, `on_close` flushes the buffer from 5.5.3.
+4. **Code.**
+   ```python
+   delay = RECONNECT_MIN_SECONDS            # 1
+   while not shutting_down:
+       ws = websocket.WebSocketApp(WS_URL, on_open=..., on_message=..., on_error=..., on_close=...)
+       connected_at = time.time()
+       ws.run_forever(ping_interval=20, ping_timeout=10)
+       if time.time() - connected_at >= STABLE_CONNECTION_SECONDS:   # 60
+           delay = RECONNECT_MIN_SECONDS    # a long-lived connection resets the backoff
+       time.sleep(delay)
+       delay = min(delay * 2, RECONNECT_MAX_SECONDS)   # 1, 2, 4 ... 60
+   ```
+5. **Issue.** Events sent while disconnected are lost. Coinbase does not replay ticker history, and after a reconnect `sequence_num` restarts, which is why Silver's dedup key includes `event_time`.
+6. **Fix.** Not fixable at the client; keep reconnect gaps short with a small initial delay. The health check (5.8.5) still alerts on a longer outage.
+7. **Interview concept.** Exponential backoff, heartbeats/keepalives to detect half-open connections, and best-effort versus at-least-once delivery.
+
+### 5.9.3 — S3 Upload Retry
+
+```text
+event buffer -> put_object ... fails -> wait 2, 4, 8, 16 s -> retry (5 attempts)   <- you are here
+```
+
+1. **What it is.** `upload()` retries `put_object` up to 5 times with growing waits. The boto3 client also has its own `standard` retry mode (`max_attempts` 5).
+2. **Why we need it.** In the old code an S3 error raised an exception and lost the buffered events.
+3. **How it connects.** It sits between the buffer (5.5.3) and S3. The batch is cleared from memory only after a successful upload.
+4. **Code.**
+   ```python
+   def upload(key, body):
+       for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+           try:
+               s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType="application/json")
+               return True
+           except Exception as error:
+               print(f"S3 upload failed (attempt {attempt}/{UPLOAD_ATTEMPTS}): {error}")
+               if attempt < UPLOAD_ATTEMPTS:
+                   time.sleep(2**attempt)
+       return False
+   ```
+5. **Issue.** The retry waits run inside the WebSocket callback, so up to about 30 seconds of retrying can block message reading. Pings may time out and trigger a reconnect.
+6. **Fix.** Accepted for now: the reconnect loop (5.9.2) recovers, and failed batches are kept by the spool (5.9.4). A queue and a separate uploader thread would remove the blocking.
+7. **Interview concept.** Retry with backoff, and not discarding data until it is durably stored.
+
+### 5.9.4 — Disk Spool and Buffer Cap
+
+```text
+upload fails after all retries -> /var/tmp/coinbase_spool/<key>   <- you are here
+next successful flush (or restart) -> upload spooled files first-in, then delete
+```
+
+1. **What it is.** When all retries fail, the batch is written to local disk. The next successful flush, and every service start, uploads spooled batches. The in-memory buffer is also capped at 50,000 events (oldest dropped).
+2. **Why we need it.** If S3 is unreachable for a while, retrying forever would grow memory without limit, and dropping the batch loses data.
+3. **How it connects.** It is the fallback for 5.9.3. The spooled file keeps its intended S3 key (with `/` replaced by `__`), so it lands in the right time folder when it is finally uploaded.
+4. **Code.**
+   ```python
+   SPOOL_DIR = Path("/var/tmp/coinbase_spool")
+   MAX_BUFFER_EVENTS = 50_000
+
+   if upload(key, body):
+       event_buffer = []
+       upload_spooled_batches()
+   else:
+       spool_batch(key, body)
+       event_buffer = []
+   ```
+5. **Issue.** The spool does not protect against a hard crash (`kill -9`, power loss, instance failure) between flushes: up to about 15 seconds of events in memory are lost.
+6. **Fix.** Accepted limit. Writing every event to disk before buffering would remove it at the cost of more I/O and code.
+7. **Interview concept.** Bounded buffers and spill-to-disk, and the difference between a memory buffer (fast, volatile) and a durable log.
+
+### 5.9.5 — Graceful Flush on Stop
+
+```text
+systemctl stop/restart -> SIGTERM -> KeyboardInterrupt -> on_close + final flush -> exit
+```
+
+1. **What it is.** A SIGTERM handler that turns a service stop into the same shutdown path as `Ctrl+C`.
+2. **Why we need it.** systemd stops a service with SIGTERM, which by default kills Python without running `on_close`. The buffered events would be lost on every restart or deploy.
+3. **How it connects.** It extends the graceful flush from 5.5.7 to the service world.
+4. **Code.**
+   ```python
+   def handle_stop_signal(signum, frame):
+       global shutting_down
+       shutting_down = True
+       raise KeyboardInterrupt
+
+   signal.signal(signal.SIGTERM, handle_stop_signal)
+   ...
+   finally:
+       flush_buffer()
+       print("Consumer stopped")
+   ```
+   `TimeoutStopSec=60` in the unit gives the flush time to finish.
+5. **Issue.** None observed.
+6. **Fix.** Not needed.
+7. **Interview concept.** Signal handling and graceful shutdown (SIGTERM versus SIGKILL).
+
+### 5.9.6 — Unique File Names
+
+1. **What it is.** The S3 key now includes microseconds: `events_YYYYMMDD_HHMMSS_ffffff.json`.
+2. **Why we need it.** A batch replayed from the spool and a new batch can be written in the same second. With second-level names the second `put_object` silently overwrites the first.
+3. **How it connects.** It changes only the file name from 5.5.6; the `coinbase/raw/YYYY/MM/DD/HH/` folders are the same, so Auto Loader and the health check are unaffected.
+4. **Code.** `f"{S3_PREFIX}/{now:%Y/%m/%d/%H}/events_{now:%Y%m%d_%H%M%S_%f}.json"`
+5. **Issue.** Found by the spool replay test: two batches written in the same second produced one object instead of two.
+6. **Fix.** Add microseconds to the name.
+7. **Interview concept.** Idempotent and collision-free object naming; silent overwrites are a data-loss risk in object storage.
+
+### 5.9.7 — Verification
+
+Tested with a mocked S3 client and a mocked WebSocket (no network):
+
+| Test | Result |
+| --- | --- |
+| Upload fails twice then succeeds | One file written, buffer cleared, nothing spooled |
+| Upload fails all 5 attempts | Batch spooled to disk, buffer cleared |
+| S3 recovers on the next flush | New batch and spooled batch both uploaded, spool emptied |
+| WebSocket closes twice, then stop | 3 connections made, loop exits cleanly, final flush runs |
+| More than 50,000 events buffered | Buffer capped at 50,000 |
+
+Live checks on EC2 (service installed and enabled with `systemctl enable`):
+
+| Test | Result |
+| --- | --- |
+| `systemctl start coinbase-consumer` | `active`; the journal showed Connected, Subscribed, then `Wrote 51 events` and `Wrote 42 events` about 15 seconds apart, and the files appeared in S3 |
+| `systemctl kill -s SIGKILL` (simulated crash) | New process ID (29000 to 29108) and state `active` about 9 seconds later, with `RestartSec=5` |
+| `systemctl restart` (graceful stop) | Journal showed `Received signal 15; flushing and stopping`, then `Wrote 39 events`, `Consumer stopped`, and a clean start; no events lost at the stop |
+| `systemctl is-enabled` | `enabled`, so the service starts on boot |
+
+Operating notes: the old terminal copy had stopped before the service was started, so only one consumer ran. A harmless `WebSocket error:` line with an empty message appears in the log during a SIGTERM stop. A live reconnect after a real network drop was not simulated; that path was tested only with the mocked WebSocket.
+
+**Remaining limits.** Up to about 15 seconds of events are lost on a hard crash; events during a WebSocket gap are lost; and a long S3 outage is only covered up to what fits on local disk. The health check (5.8.5) remains the final alert.
 
 ## Future Sub-Phases — Build Separately
 
@@ -1288,7 +1507,7 @@ AWS EC2  (VS Code Remote SSH from laptop; Python / uv / AWS CLI / Databricks CLI
   |     boto3 put_object()
   |-- EC2 role: PareshCoinbaseEC2S3Role (temporary credentials, no access keys)
   v
-Amazon S3: coinbase/raw/YYYY/MM/DD/HH/events_YYYYMMDD_HHMMSS.json
+Amazon S3: coinbase/raw/YYYY/MM/DD/HH/events_YYYYMMDD_HHMMSS_ffffff.json
   | Unity Catalog Storage Credential
   |   -> PareshDatabricksCoinbaseS3ReadAccess
   |   -> External Location: coinbase_raw_external_location
@@ -1351,11 +1570,11 @@ Two separate AWS roles are involved. The EC2 role writes to S3; the Databricks r
 ✅ 5.8 Scheduled job (15 min), 3 retries, failure email, consumer health-check alert
 
 ⏳ 5.7 Gold business transformations (to be built later)
-⏳ Consumer hardening: auto-restart (systemd), reconnect, upload retry
+✅ 5.9 Consumer reliability: systemd service, reconnect, upload retry, disk spool
 ⏳ CI/CD with GitHub Actions
 ```
 
-Phase 5 remains in progress until the planned transformation work is complete. Live Coinbase events are verified in Bronze and Silver; the Gold table does not exist yet. The consumer has no reconnect or upload-retry logic yet (see 5.5.10), and it was stopped at the time of the last data check.
+Phase 5 remains in progress until the planned transformation work is complete. Live Coinbase events are verified in Bronze and Silver; the Gold table does not exist yet. The consumer runs under systemd with reconnect and upload retry (5.9); a hard crash can still lose up to about 15 seconds of buffered events.
 
 ## What I Learned
 
@@ -1432,10 +1651,16 @@ Phase 5 remains in progress until the planned transformation work is complete. L
 43. Why have separate alerts for pipeline failure and consumer failure?
 44. Why can a job report SUCCESS while data is missing, and how do you detect it?
 45. How do task retries interact with failure email notifications?
+46. Why use systemd instead of `tmux` or running the script by hand?
+47. What does `Restart=always` do, and why does `KillSignal=SIGTERM` matter for a buffered consumer?
+48. Why reconnect with exponential backoff, and why add ping/pong?
+49. Why clear the in-memory buffer only after a successful upload?
+50. Why does a second consumer instance cause duplicates that Silver's dedup key does not remove?
+51. What data can still be lost after these changes, and how would you remove that risk?
 
 ## Phase 5 Status
 
-Phase 5 is **in progress**. Sub-phases 5.1–5.6 and 5.8 are complete: bundle deployment, EC2-to-S3, Databricks-to-S3, the live Coinbase consumer, Bronze, Silver, the 15-minute job with retries, and the failure and consumer-health alerts. Gold (5.7) is planned for later, and consumer hardening and CI/CD remain follow-on work.
+Phase 5 is **in progress**. Sub-phases 5.1–5.6, 5.8 and 5.9 are complete: bundle deployment, EC2-to-S3, Databricks-to-S3, the live Coinbase consumer, Bronze, Silver, the 15-minute job with retries, and the failure and consumer-health alerts. Consumer reliability (5.9) is also complete. Gold (5.7) is planned for later, and CI/CD remains follow-on work.
 
 ## Commit Phase 5 Work
 
@@ -1452,4 +1677,4 @@ Do not stage the temporary `test.json`, downloaded `awscliv2.zip`, or extracted 
 
 ## Interview Summary
 
-> EC2 writes raw files to S3 using an attached IAM role and temporary STS credentials. Databricks accesses the prefix through a Unity Catalog Storage Credential and External Location backed by a separate AWS role. A Python consumer on EC2 subscribes to the Coinbase BTC-USD ticker WebSocket, buffers events for about 15 seconds, and writes each batch with boto3 as one newline-delimited JSON file under a time-based `coinbase/raw/YYYY/MM/DD/HH/` prefix, using the EC2 role. A serverless Lakeflow pipeline uses Auto Loader to incrementally append the new files into `workspace.bronze.coinbase_bronze`; one verified run ingested 256 records. Silver (`workspace.silver.coinbase_ticker`) flattens and types the data with quality rules. A Databricks job runs the pipeline every 15 minutes with 3 retries and a failure email, and a separate health-check job alerts if the consumer stops writing to S3. Gold and consumer hardening (auto-restart, reconnect, retry) remain planned work.
+> EC2 writes raw files to S3 using an attached IAM role and temporary STS credentials. Databricks accesses the prefix through a Unity Catalog Storage Credential and External Location backed by a separate AWS role. A Python consumer on EC2 subscribes to the Coinbase BTC-USD ticker WebSocket, buffers events for about 15 seconds, and writes each batch with boto3 as one newline-delimited JSON file under a time-based `coinbase/raw/YYYY/MM/DD/HH/` prefix, using the EC2 role. A serverless Lakeflow pipeline uses Auto Loader to incrementally append the new files into `workspace.bronze.coinbase_bronze`; one verified run ingested 256 records. Silver (`workspace.silver.coinbase_ticker`) flattens and types the data with quality rules. A Databricks job runs the pipeline every 15 minutes with 3 retries and a failure email, and a separate health-check job alerts if the consumer stops writing to S3. The consumer runs under systemd with WebSocket reconnect, upload retry, and a disk spool. Gold remains planned work.
