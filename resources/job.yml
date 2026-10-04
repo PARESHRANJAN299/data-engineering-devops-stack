@@ -19,3 +19,6 @@ resources:
         - task_key: run_bronze_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.data_engineering_pipeline.id}
+          max_retries: 3
+          min_retry_interval_millis: 60000
+          retry_on_timeout: true
