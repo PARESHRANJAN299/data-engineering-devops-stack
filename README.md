@@ -103,6 +103,18 @@ flowchart TD
 
 Solid lines are built. Dashed lines are planned.
 
+### How GitHub Actions will log in (planned, Phase 10)
+
+<div align="center">
+    <img src="docs/images/cicd-identity.svg" alt="Animated diagram: You, a human user, log in to Databricks through the CLI with a browser; GitHub Actions logs in as a service principal, a robot user, with a client ID and secret. Databricks authenticates the identity, allows only the permissions granted, then bundle validate and bundle deploy update the dev workspace" width="100%"/>
+</div>
+
+- **You = human user.** You log in to Databricks with a browser (OAuth), and you can do what your account is allowed to do.
+- **Service Principal = robot user.** GitHub Actions cannot open a browser, so it logs in as a service principal with a client ID and secret kept in GitHub secrets.
+- **Same checks, different identity.** Databricks first confirms who is calling (authentication), then allows only the permissions granted to that identity (authorization). The robot is given only what `bundle validate` and `bundle deploy` need.
+
+This flow is planned; no GitHub Actions workflow exists yet.
+
 Each phase has its own write-up with commands, issues, root causes and fixes; see [Phase files](#phase-files). The ingestion-to-Silver build, the job and the consumer are in [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md).
 
 ## Tools / technologies
