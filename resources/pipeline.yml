@@ -1,7 +1,7 @@
 resources:
   pipelines:
     data_engineering_pipeline:
-      name: data-engineering-pipeline
+      name: data-engineering-pipeline-test
       serverless: true
       catalog: workspace
       schema: bronze
