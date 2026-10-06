@@ -62,6 +62,6 @@ Not started.
 4. How would you handle late-arriving data in an aggregate?
 5. How do you keep Gold consistent with Silver?
 
-## Phase status ⏳
+## Phase status ↪️
 
-Pending. Bronze and Silver are complete in Phase 5; only Gold transformations remain for this phase.
+Out of Data Engineering scope for this project. Bronze and Silver are complete in Phase 5. Gold and analytics are handled by the Data Analyst / Analytics team.

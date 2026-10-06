@@ -95,15 +95,15 @@ flowchart TD
     F --> G[Databricks DEV]
     G --> H[Bronze]
     H --> I[Silver]
-    I -.-> J[Gold - planned, Phase 8]
-    G -.-> K[Data Quality Framework - planned, Phase 9]
-    C -.-> L[GitHub Actions - planned, Phase 10]
+    I -.-> J[Gold - Analytics team scope, Phase 8]
+    G -.-> K[Data Quality Framework - Analytics team scope, Phase 9]
+    C -.-> L[GitHub Actions - designed, not implemented, Phase 10]
     L -.-> F
 ```
 
-Solid lines are built. Dashed lines are planned.
+Solid lines are built. Dashed lines are outside this project's Data Engineering scope, or designed but not implemented.
 
-### How GitHub Actions will log in (planned, Phase 10)
+### How GitHub Actions would log in (designed, not implemented)
 
 <div align="center">
     <img src="docs/images/cicd-identity.svg" alt="Animated diagram: You, a human user, log in to Databricks through the CLI with a browser; GitHub Actions logs in as a service principal, a robot user, with a client ID and secret. Databricks authenticates the identity, allows only the permissions granted, then bundle validate and bundle deploy update the dev workspace" width="100%"/>
@@ -113,7 +113,7 @@ Solid lines are built. Dashed lines are planned.
 - **Service Principal = robot user.** GitHub Actions cannot open a browser, so it logs in as a service principal with a client ID and secret kept in GitHub secrets.
 - **Same checks, different identity.** Databricks first confirms who is calling (authentication), then allows only the permissions granted to that identity (authorization). The robot is given only what `bundle validate` and `bundle deploy` need.
 
-This flow is planned; no GitHub Actions workflow exists yet.
+This flow is a design. No GitHub Actions workflow exists: the account-level federation capability needed for OIDC login was not available in the Databricks Free Edition environment used for this project. See [11-cicd-interview-preparation.md](11-cicd-interview-preparation.md).
 
 Each phase has its own write-up with commands, issues, root causes and fixes; see [Phase files](#phase-files). The ingestion-to-Silver build, the job and the consumer are in [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md).
 
@@ -128,7 +128,7 @@ Each phase has its own write-up with commands, issues, root causes and fixes; se
 - uv
 - Databricks CLI
 - Databricks Asset Bundle
-- GitHub Actions (planned, Phase 10)
+- GitHub Actions (designed, not implemented; see Phase 10)
 - Markdown documentation
 
 ## Overall phase tracker
@@ -142,9 +142,11 @@ Each phase has its own write-up with commands, issues, root causes and fixes; se
 | 5 | Databricks Asset Bundle | ✅ Completed |
 | 6 | Development Deployment | ✅ Completed |
 | 7 | Approval-Based Deployment | ✅ Completed |
-| 8 | Gold Transformations | ⏳ Pending |
-| 9 | Data Quality Framework | ⏳ Pending |
-| 10 | GitHub Actions CI/CD | ⏳ Pending |
+| 8 | Gold Transformations | ↪️ Data Analyst / Analytics team scope |
+| 9 | Data Quality Framework | ↪️ Data Analyst / Analytics team scope for this project |
+| 10 | GitHub Actions CI/CD | ⚠️ Architecture documented; OIDC deployment blocked by Databricks Free Edition account-level limitation |
+
+**Data Engineering scope: complete.** Ingestion, S3 landing, governed Databricks access, Bronze and Silver, scheduled jobs with alerts, deployment as code, and branch governance are built and running. Gold and the broader data quality framework are Data Analyst / Analytics team scope. GitHub Actions CI/CD is documented as a design, with the OIDC deployment blocked by a Databricks Free Edition limitation.
 
 ## Phase files
 
@@ -158,3 +160,4 @@ Each phase has its own write-up with commands, issues, root causes and fixes; se
 - [08-gold-transformations.md](08-gold-transformations.md)
 - [09-data-quality-framework.md](09-data-quality-framework.md)
 - [10-github-actions-cicd.md](10-github-actions-cicd.md)
+- [11-cicd-interview-preparation.md](11-cicd-interview-preparation.md)

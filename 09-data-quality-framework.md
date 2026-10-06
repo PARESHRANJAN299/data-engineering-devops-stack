@@ -59,6 +59,6 @@ Create a practical data quality framework to validate correctness, completeness,
 - A single place that reports quality results over time.
 - Reconciliation checks between layers.
 
-## Phase status ⏳
+## Phase status ↪️
 
-Pending. Quality rules and freshness alerting exist for Silver and the consumer (Phase 5), but the full framework described above is not built.
+A broader quality framework is Data Analyst / Analytics team scope for this project. The Data Engineering quality controls already in place are listed above (Silver expectations, deduplication, freshness alert, failure alerts).

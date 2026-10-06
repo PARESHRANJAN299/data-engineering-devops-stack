@@ -56,6 +56,6 @@ There are no GitHub Actions workflows yet (no `.github/workflows/` folder). Vali
 - Add a `CODEOWNERS` file so code owner review takes effect.
 - Optionally deploy to `dev` after merge.
 
-## Phase status ⏳
+## Phase status ⚠️
 
-Pending. No workflows exist yet.
+Architecture documented; OIDC deployment not completed. The required account-level federation capability was unavailable in the Databricks Free Edition environment used for this project (the project owner's finding). No workflows exist. See [11-cicd-interview-preparation.md](11-cicd-interview-preparation.md).
