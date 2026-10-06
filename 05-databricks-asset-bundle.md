@@ -2,7 +2,7 @@
 
 ## Phase Goal
 
-Build and verify the deployment and ingestion foundation in small architectural slices. The implementation first proved EC2-to-S3 and S3-to-Bronze with a test JSON file (5.1–5.4), then replaced the test file with a live Coinbase WebSocket consumer on EC2 (5.5), added Silver (5.6) and a scheduled, monitored job (5.8). Gold (5.7) moves to Phase 7 (Gold transformations).
+Build and verify the deployment and ingestion foundation in small architectural slices. The implementation first proved EC2-to-S3 and S3-to-Bronze with a test JSON file (5.1–5.4), then replaced the test file with a live Coinbase WebSocket consumer on EC2 (5.5), added Silver (5.6) and a scheduled, monitored job (5.8). Gold (5.7) moves to Phase 8 (Gold transformations).
 
 ## Target Architecture
 
@@ -41,11 +41,11 @@ Gold Delta (future)
 | 5.4 | Auto Loader, serverless pipeline, and Bronze test ingestion | ✅ Complete |
 | 5.5 | Coinbase WebSocket consumer writing real events to S3, then to Bronze | ✅ Complete |
 | 5.6 | Silver cleansing and standardization | ✅ Complete |
-| 5.7 | Gold business-ready transformations | ➡️ Moved to Phase 7 |
+| 5.7 | Gold business-ready transformations | ➡️ Moved to Phase 8 |
 | 5.8 | Job orchestration, retries, and failure/consumer alerts | ✅ Complete |
 | 5.9 | Consumer reliability: systemd, reconnect, upload retry, spool | ✅ Complete |
 
-The completed slices establish `Coinbase -> EC2 -> S3 -> Databricks -> Auto Loader -> Bronze Delta`. Each new S3 file contributes rows to the same Bronze table; files do not get separate Bronze tables. Silver (5.6) and the scheduled job with alerting (5.8) are complete. Gold (5.7) is not part of Phase 5; it is built in Phase 7.
+The completed slices establish `Coinbase -> EC2 -> S3 -> Databricks -> Auto Loader -> Bronze Delta`. Each new S3 file contributes rows to the same Bronze table; files do not get separate Bronze tables. Silver (5.6) and the scheduled job with alerting (5.8) are complete. Gold (5.7) is not part of Phase 5; it is built in Phase 8.
 
 ## Current Connectivity Status
 
@@ -1483,7 +1483,7 @@ Operating notes: the old terminal copy had stopped before the service was starte
 
 ### Sub-Phase 5.7 — Gold Delta
 
-**Status: moved to Phase 7.** Build business-facing aggregates from the validated Silver data; agree on the use cases and grain before defining tables.
+**Status: moved to Phase 8.** Build business-facing aggregates from the validated Silver data; agree on the use cases and grain before defining tables.
 
 ```text
 Silver Delta -> business rules/aggregations -> Gold Delta
@@ -1491,7 +1491,7 @@ Silver Delta -> business rules/aggregations -> Gold Delta
 
 Completion check: each Gold table has an identified consumer, documented grain, and repeatable transformation from Silver.
 
-CI/CD is covered in Phase 9.
+CI/CD is covered in Phase 10.
 
 ## Current End-to-End Architecture
 
@@ -1569,12 +1569,12 @@ Two separate AWS roles are involved. The EC2 role writes to S3; the Databricks r
 ✅ 5.6 Silver transformations and data-quality rules (workspace.silver.coinbase_ticker)
 ✅ 5.8 Scheduled job (15 min), 3 retries, failure email, consumer health-check alert
 
-➡️ 5.7 Gold business transformations: moved to Phase 7
+➡️ 5.7 Gold business transformations: moved to Phase 8
 ✅ 5.9 Consumer reliability: systemd service, reconnect, upload retry, disk spool
-➡️ CI/CD with GitHub Actions: Phase 9
+➡️ CI/CD with GitHub Actions: Phase 10
 ```
 
-Phase 5 is complete. Live Coinbase events are verified in Bronze and Silver; the Gold table is built in Phase 7. The consumer runs under systemd with reconnect and upload retry (5.9); a hard crash can still lose up to about 15 seconds of buffered events.
+Phase 5 is complete. Live Coinbase events are verified in Bronze and Silver; the Gold table is built in Phase 8. The consumer runs under systemd with reconnect and upload retry (5.9); a hard crash can still lose up to about 15 seconds of buffered events.
 
 ## What I Learned
 
@@ -1660,7 +1660,7 @@ Phase 5 is complete. Live Coinbase events are verified in Bronze and Silver; the
 
 ## Phase 5 Status
 
-Phase 5 is **complete**. Sub-phases 5.1–5.6, 5.8 and 5.9 are done: bundle deployment, EC2-to-S3, Databricks-to-S3, the live Coinbase consumer, Bronze, Silver, the 15-minute job with retries, and the failure and consumer-health alerts. Consumer reliability (5.9) is also complete. Gold (5.7) moved to Phase 7, and CI/CD is Phase 9.
+Phase 5 is **complete**. Sub-phases 5.1–5.6, 5.8 and 5.9 are done: bundle deployment, EC2-to-S3, Databricks-to-S3, the live Coinbase consumer, Bronze, Silver, the 15-minute job with retries, and the failure and consumer-health alerts. Consumer reliability (5.9) is also complete. Gold (5.7) moved to Phase 8, and CI/CD is Phase 10.
 
 ## Commit Phase 5 Work
 

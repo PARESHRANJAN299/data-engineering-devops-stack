@@ -95,13 +95,15 @@ flowchart TD
     F --> G[Databricks DEV]
     G --> H[Bronze]
     H --> I[Silver]
-    I --> J[Gold]
-    G --> K[Data Quality Framework]
-    C --> L[GitHub Actions]
-    L --> F
+    I -.-> J[Gold - planned, Phase 8]
+    G -.-> K[Data Quality Framework - planned, Phase 9]
+    C -.-> L[GitHub Actions - planned, Phase 10]
+    L -.-> F
 ```
 
-The full build write-up, with commands, issues, root causes and fixes for every phase, is in [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md).
+Solid lines are built. Dashed lines are planned.
+
+Each phase has its own write-up with commands, issues, root causes and fixes; see [Phase files](#phase-files). The ingestion-to-Silver build, the job and the consumer are in [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md).
 
 ## Tools / technologies
 
@@ -114,9 +116,8 @@ The full build write-up, with commands, issues, root causes and fixes for every 
 - uv
 - Databricks CLI
 - Databricks Asset Bundle
-- GitHub Actions
+- GitHub Actions (planned, Phase 10)
 - Markdown documentation
-- CI/CD deployment workflow
 
 ## Overall phase tracker
 
@@ -128,10 +129,10 @@ The full build write-up, with commands, issues, root causes and fixes for every 
 | 4 | Databricks CLI Authentication | ✅ Completed |
 | 5 | Databricks Asset Bundle | ✅ Completed |
 | 6 | Development Deployment | ✅ Completed |
-| 7 | Gold Transformations | ⏳ Pending |
-| 8 | Data Quality Framework | ⏳ Pending |
-| 9 | GitHub Actions CI/CD | ⏳ Pending |
-| 10 | Approval-Based Deployment | ✅ Completed |
+| 7 | Approval-Based Deployment | ✅ Completed |
+| 8 | Gold Transformations | ⏳ Pending |
+| 9 | Data Quality Framework | ⏳ Pending |
+| 10 | GitHub Actions CI/CD | ⏳ Pending |
 
 ## Phase files
 
@@ -141,7 +142,7 @@ The full build write-up, with commands, issues, root causes and fixes for every 
 - [04-databricks-cli-authentication.md](04-databricks-cli-authentication.md)
 - [05-databricks-asset-bundle.md](05-databricks-asset-bundle.md)
 - [06-dev-deployment.md](06-dev-deployment.md)
-- [07-gold-transformations.md](07-gold-transformations.md)
-- [08-data-quality-framework.md](08-data-quality-framework.md)
-- [09-github-actions-cicd.md](09-github-actions-cicd.md)
-- [10-approval-based-deployment.md](10-approval-based-deployment.md)
+- [07-approval-based-deployment.md](07-approval-based-deployment.md)
+- [08-gold-transformations.md](08-gold-transformations.md)
+- [09-data-quality-framework.md](09-data-quality-framework.md)
+- [10-github-actions-cicd.md](10-github-actions-cicd.md)

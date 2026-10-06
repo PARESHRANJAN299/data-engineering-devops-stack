@@ -1,4 +1,4 @@
-# Phase 8 — Data Quality Framework
+# Phase 9 — Data Quality Framework
 
 ## Phase Goal
 Create a practical data quality framework to validate correctness, completeness, and reliability across the data pipeline.
@@ -44,5 +44,21 @@ Create a practical data quality framework to validate correctness, completeness,
 4. What are some common data quality failures in pipelines?
 5. How can data quality checks prevent downstream business issues?
 
-## Phase status ✅
-Completed: A baseline data quality framework was defined to support trusted pipeline outputs.
+## Already in place (built in Phase 5)
+
+- **Silver expectations.** `workspace.silver.coinbase_ticker` enforces four rules with `expect_all_or_drop`: `event_time` not null, `product_id` not null, `price > 0`, and `best_bid <= best_ask`. Dropped-row counts show on the pipeline's Data quality tab.
+- **Deduplication.** Silver removes repeats on `product_id`, `event_time` and `sequence_num`.
+- **Safe casts.** `try_cast` turns bad numbers into `NULL`, which a rule then catches.
+- **Freshness monitoring.** `coinbase-consumer-health-check` fails and emails when no new S3 file has arrived for 10 minutes.
+- **Pipeline failure alerts.** `coinbase-bronze-job` retries 3 times and emails on failure.
+
+## Still to build
+
+- Rules for Bronze and for the Gold tables from Phase 8.
+- Schema-drift detection.
+- A single place that reports quality results over time.
+- Reconciliation checks between layers.
+
+## Phase status ⏳
+
+Pending. Quality rules and freshness alerting exist for Silver and the consumer (Phase 5), but the full framework described above is not built.

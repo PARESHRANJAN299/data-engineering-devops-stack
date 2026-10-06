@@ -1,4 +1,4 @@
-# Phase 7 — Gold Transformations
+# Phase 8 — Gold Transformations
 
 ## Phase Goal
 
@@ -8,7 +8,7 @@ Build the Gold layer: business-ready, aggregated tables on top of the clean Silv
 
 ```text
 Coinbase WebSocket -> EC2 consumer -> S3 raw -> Auto Loader -> workspace.bronze.coinbase_bronze
-                                                          -> workspace.silver.coinbase_ticker   <- Phase 7 starts here
+                                                          -> workspace.silver.coinbase_ticker   <- Phase 8 starts here
                                                           -> Gold (this phase)
 ```
 

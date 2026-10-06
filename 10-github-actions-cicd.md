@@ -1,4 +1,4 @@
-# Phase 9 — GitHub Actions CI/CD
+# Phase 10 — GitHub Actions CI/CD
 
 ## Phase Goal
 Implement a CI/CD pipeline using GitHub Actions to automate validation, delivery, and deployment workflows for the project.
@@ -44,5 +44,18 @@ Implement a CI/CD pipeline using GitHub Actions to automate validation, delivery
 4. How should a pipeline validate code before deployment?
 5. What are the benefits of automated deployment logs?
 
-## Phase status ✅
-Completed: GitHub Actions CI/CD workflow was introduced and validated for project automation.
+## Current state
+
+There are no GitHub Actions workflows yet (no `.github/workflows/` folder). Validation and deployment are run by hand from EC2 with the Databricks CLI (see Phase 6), and pull requests are approved by hand (see Phase 7).
+
+## Planned first steps
+
+- A workflow on every pull request that runs `databricks bundle validate` against the bundle.
+- Make that workflow a required status check in the `main` ruleset.
+- Store the Databricks credentials as GitHub secrets, never in the repo.
+- Add a `CODEOWNERS` file so code owner review takes effect.
+- Optionally deploy to `dev` after merge.
+
+## Phase status ⏳
+
+Pending. No workflows exist yet.
