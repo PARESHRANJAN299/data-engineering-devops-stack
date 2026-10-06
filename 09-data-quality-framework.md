@@ -1,4 +1,4 @@
-# Phase 8 — Data Quality Framework
+# Phase 9 — Data Quality Framework
 
 ## Phase Goal
 Create a practical data quality framework to validate correctness, completeness, and reliability across the data pipeline.

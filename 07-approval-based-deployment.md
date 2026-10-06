@@ -1,4 +1,4 @@
-# Phase 10 — Approval-Based Deployment
+# Phase 7 — Approval-Based Deployment
 
 ## Phase Goal
 Create a controlled deployment process that includes review and approval before production-impacting changes are promoted.

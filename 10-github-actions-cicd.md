@@ -1,4 +1,4 @@
-# Phase 9 — GitHub Actions CI/CD
+# Phase 10 — GitHub Actions CI/CD
 
 ## Phase Goal
 Implement a CI/CD pipeline using GitHub Actions to automate validation, delivery, and deployment workflows for the project.
